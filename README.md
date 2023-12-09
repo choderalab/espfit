@@ -9,7 +9,7 @@ Infrastruture to train espaloma with experimental observables
 
 ### Copyright
 
-Copyright (c) 2023, Kenichiro Takaba
+Copyright (c) 2023, Ken Takaba
 
 
 #### Acknowledgements
