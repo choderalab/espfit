@@ -80,16 +80,67 @@ class CustomGraphDataset(GraphDataset):
         self.graphs = graphs
         self.reference_forcefield = reference_forcefield
         self.random_seed = RANDOM_SEED
+        #print(type(self.graphs))  # <class 'list'>
 
 
-    def drop_and_merge_duplicates(self):
-        """Drop and merge duplicate smiles across different data sources.
+    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
+        """Drop and merge duplicate nonisomeric smiles across different data sources.
+
+        Modifies list of esp.Graph's in place.
 
         Parameters
         ----------
-
+        save_merged_datest : boolean, default=True
+            If True, then merged datasets will be saved as a new dataset
+        
+        dataset_name : str, default=misc
+            Name of the merged dataset
+        
+        output_directory_path : str, default='.'
+            Directory path to save the new dataset
         """
-        pass
+        import os
+        import pandas as pd
+
+        logging.info(f'Drop and merge duplicate smiles')
+        smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
+        logging.info(f'Found ({len(smiles)}) molecules')
+
+        # unique entries
+        df = pd.DataFrame.from_dict({'smiles': smiles})
+        unique_index = df.drop_duplicates(keep=False).index.to_list()
+        # TypeError: list indices must be integers or slices, not list
+        unique_graphs = self.graphs[unique_index]
+
+        # duplicated entries
+        index = df.duplicated(keep=False)   # mark all duplicate entries True
+        duplicated_index = df[index].index.to_list()
+        duplicated_df = df.iloc[duplicated_index]
+        # get unique smiles and assign new molecule name `e.g. mol0001`
+        duplicated_smiles = duplicated_df.smiles.unique().tolist()
+        molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
+        # merge duplicate entries into a new single graph
+        duplicated_graphs = []
+        molnames_dict = {}
+        for molname, duplicated_smile in zip(molnames, duplicated_smiles):
+            # map new molecule name with its unique smiles and dataframe indices
+            index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
+            molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
+            # check if graphs are equivalent
+            self._check_equivalent_graphs(self.graphs[index])
+            # merge graphs
+            g = self._merge_graphs(self.graphs[index])
+            duplicated_graphs += g
+            # save graphs (optional)
+            if save_merged_dataset == True:
+                filename = os.path.join(output_prefix, 'misc', molname)
+                os.makedirs(filename, exist_ok=False)
+                g.save(output_prefix)
+
+        # update in place
+        new_graphs = unique_graphs + duplicated_graphs
+        self.graph = new_graphs
+        del unique_graphs, duplicated_graphs, df, duplicated_df
 
 
     def subtract_nonbonded_interactions(self, subtract_vdw=False, subtract_ele=True):
@@ -365,6 +416,9 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
+        # remove node features that are not used during training
+        self._remove_node_features()
+
         new_graphs = []
         for i, g in enumerate(self.graphs):
             n = g.nodes['n1'].data['xyz'].shape[1]
@@ -415,3 +469,72 @@ class CustomGraphDataset(GraphDataset):
         # update in place
         self.graphs = new_graphs
         del new_graphs
+
+
+    def _remove_node_features(self):
+        """Remove node features that are not necessarily during Espaloma training.
+        """
+        import copy
+        
+        new_graphs = []
+        for g in self.graphs:
+            _g = copy.deepcopy(g)
+            for key in g.nodes['g'].data.keys():
+                if key.startswith('u_') and key != 'u_ref':
+                    _g.nodes['g'].data.pop(key)
+            for key in g.nodes['n1'].data.keys():
+                if key.startswith('u_') and key != 'u_ref_prime':
+                    _g.nodes['n1'].data.pop(key)
+            new_graphs.append(_g)
+        
+        # update in place
+        self.graphs = new_graphs
+        del new_graphs
+
+
+    def _merge_graphs(self, ds):
+        """Merge multiple dgl graph in place.
+
+        Parameters
+        ----------
+        ds : list of espaloma.graphs.graph.Graph
+
+        Returns
+        -------
+        g : single espaloma.graphs.graph.Graph
+        """
+        import copy
+        g = copy.deepcopy(ds[0])
+
+        for key in g.nodes['g'].data.keys():
+            if key not in ["sum_q"]:
+                for i in range(1, len(ds)):
+                    g.nodes['g'].data[key] = torch.cat((g.nodes['g'].data[key], ds[i].nodes['g'].data[key]), dim=-1)
+        for key in g.nodes['n1'].data.keys():
+            if key not in ["q_ref", "idxs", "h0"]:
+                for i in range(1, len(ds)):
+                    if key == "xyz":
+                        n_confs = ds[i].nodes['n1'].data['xyz'].shape[1]
+                        print(f"Number of conformation: {n_confs}")
+                    g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], ds[i].nodes['n1'].data[key]), dim=1)
+        
+        return g
+
+
+    def _check_equivalent_graphs(self, ds):
+        """Check if dgl graphs are equivalent.
+
+        Parameters
+        ----------
+        ds : list of espaloma.graphs.graph.Graph
+        """
+        for i in range(1, len(ds)):
+            # openff molecule
+            assert ds[0].mol == ds[i].mol
+            # mapped isomeric smiles
+            assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+            # other node features
+            for key in ["sum_q"]:
+                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
+            for key in ["q_ref", "idxs", "h0"]:
+                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
