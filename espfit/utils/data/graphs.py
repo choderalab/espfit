@@ -509,7 +509,8 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def _merge_graphs(self, ds):
+    @staticmethod
+    def _merge_graphs(ds):
         """Merge multiple dgl graph in place.
 
         Parameters
@@ -520,12 +521,23 @@ class CustomGraphDataset(GraphDataset):
         -------
         g : single espaloma.graphs.graph.Graph
         """
-        # check if graphs are equivalent
-        self._check_equivalent_graphs(ds)
-
+        import numpy as np
         import copy
         import torch
 
+        # check if graphs are equivalent
+        for i in range(1, len(ds)):
+            # openff molecule
+            assert ds[0].mol == ds[i].mol
+            # mapped isomeric smiles
+            assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+            # other node features
+            for key in ["sum_q"]:
+                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
+            for key in ["q_ref", "idxs", "h0"]:
+                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
+
+        # merge graphs
         g = copy.deepcopy(ds[0])
         for key in g.nodes['g'].data.keys():
             if key not in ["sum_q"]:
@@ -540,23 +552,3 @@ class CustomGraphDataset(GraphDataset):
         
         return g
 
-
-    def _check_equivalent_graphs(self, ds):
-        """Check if dgl graphs are equivalent.
-
-        Parameters
-        ----------
-        ds : list of espaloma.graphs.graph.Graph
-        """
-        import numpy as np
-
-        for i in range(1, len(ds)):
-            # openff molecule
-            assert ds[0].mol == ds[i].mol
-            # mapped isomeric smiles
-            assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-            # other node features
-            for key in ["sum_q"]:
-                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
-            for key in ["q_ref", "idxs", "h0"]:
-                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
