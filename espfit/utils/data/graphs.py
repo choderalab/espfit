@@ -1,9 +1,19 @@
+"""
+Custom GraphDataset with additional support to manipulate DGL graphs.
+
+TODO
+----
+* Use type hint?
+* Allow user to define logging level
+* Add more logging info
+* Add option to keep minimum energy conformer for each chunked dataset in `reshape_conformation_size()`
+"""
+
 import logging
 import espaloma as esp
 from espaloma.data.dataset import GraphDataset
 
 _logger = logging.getLogger(__name__)
-# TODO: allow user to define logging level
 logging.basicConfig(format='[%(levelname)s] %(asctime)s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 
 
@@ -12,10 +22,13 @@ class CustomGraphDataset(GraphDataset):
 
     Methods
     -------
+    drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
+        Drop and merge duplicate nonisomeric smiles across different data sources
+
     subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True):
         Subtract nonbonded interactions from QC reference
 
-    filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature=None):
+    filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref'):
         Filter high energy conformers and ensure minimum number of conformers
 
     filter_minimum_conformers(n_conformer_threshold=3):
@@ -24,13 +37,11 @@ class CustomGraphDataset(GraphDataset):
     compute_baseline_energy_force(forcefield_list=['openff-2.0.0']):
         Compute energies and forces using other force fields 
 
-    compute_relative_energy():
-        Compute relative energy for both QM and MM energies with the mean set to zero
-
-    drop_and_merge_duplicates():
-
     reshape_conformation_size(n_confs=50):
         Reshape conformation size.
+    
+    compute_relative_energy():
+        Compute relative energy for both QM and MM energies with the mean set to zero
 
     Notes
     -----
@@ -43,30 +54,34 @@ class CustomGraphDataset(GraphDataset):
     --------
 
     >>> from espaloma.data.dataset import GraphDataset
-    >>> path = 'espfit/data/qcdata/dgl-converted-from-hdf5-with-partial-charge/protein-torsion'
+    >>> path = 'espfit/data/qcdata/before-ff-calc/protein-torsion-sm'
     >>> ds = GraphDataset.load(path)
     >>> # drop and merge duplicate molecules
-    >>> ds.drop_and_merge_duplicates()
-    >>> # subtract non-bonded energies and forces from QC reference
-    >>> ds.subtract_nobonded_interactions()
-    >>> # filter high energy conformers
-    >>> ds.filter_high_energy_conformers()
+    >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.')
+    >>> # subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
+    >>> # this will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
+    >>> ds.subtract_nobonded_interactions(subtract_vdw=False, subtract_ele=True)
+    >>> # filter high energy conformers (u_qm: QM reference before nonbonded interations are subtracted)
+    >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_qm')
+    >>> # filter high energy conformers (u_ref: QM reference after nonbonded interactions are substracted)
+    >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref')
     >>> # filter conformers below certain number
-    >>> ds.filter_minimum_conformers()
+    >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
+    >>> # compute energies and forces using other force fields
+    >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.0.0'])
     >>> # reshape conformation size
-    >>> ds.reshape_conformation_size()
-    >>> # compute relative energy
+    >>> ds.reshape_conformation_size(n_confs=50)
+    >>> # compute relative energy. QM and MM energies mean are set to zero.
     >>> ds.compute_relative_energy()
     """
 
-    # TODO: better way to initialize
     def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', RANDOM_SEED=2666):
         """Construct custom GraphDataset instance to prepare QC dataset for espaloma training.
 
         Parameters
         ----------
 
-        graphs : list of espaloma.graphs.graph.Graph
+        graphs : list of espaloma.graphs.graph.Graph, default=[]
             DGL graphs loaded from espaloma.data.dataset.GraphDataset.load
              
         reference_forcefield : str, default=openff-2.0.0
@@ -80,7 +95,6 @@ class CustomGraphDataset(GraphDataset):
         self.graphs = graphs
         self.reference_forcefield = reference_forcefield
         self.random_seed = RANDOM_SEED
-        #print(type(self.graphs))  # <class 'list'>
 
 
     def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
@@ -104,21 +118,25 @@ class CustomGraphDataset(GraphDataset):
 
         logging.info(f'Drop and merge duplicate smiles')
         smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
-        logging.info(f'Found ({len(smiles)}) molecules')
+        logging.info(f'Found {len(smiles)} molecules')
 
         # unique entries
         df = pd.DataFrame.from_dict({'smiles': smiles})
         unique_index = df.drop_duplicates(keep=False).index.to_list()
-        # TypeError: list indices must be integers or slices, not list
-        unique_graphs = self.graphs[unique_index]
+        unique_graphs = [self.graphs[_idx] for _idx in unique_index]
+        logging.info(f'Found {len(unique_index)} unique molecules')
 
         # duplicated entries
         index = df.duplicated(keep=False)   # mark all duplicate entries True
         duplicated_index = df[index].index.to_list()
-        duplicated_df = df.iloc[duplicated_index]
+        logging.info(f'Found {len(duplicated_index)} duplicated molecules')
+        
         # get unique smiles and assign new molecule name `e.g. mol0001`
+        duplicated_df = df.iloc[duplicated_index]
         duplicated_smiles = duplicated_df.smiles.unique().tolist()
         molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
+        logging.info(f'Found {len(molnames)} unique molecules within duplicate entries')
+
         # merge duplicate entries into a new single graph
         duplicated_graphs = []
         molnames_dict = {}
@@ -126,20 +144,19 @@ class CustomGraphDataset(GraphDataset):
             # map new molecule name with its unique smiles and dataframe indices
             index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
             molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
-            # check if graphs are equivalent
-            self._check_equivalent_graphs(self.graphs[index])
             # merge graphs
-            g = self._merge_graphs(self.graphs[index])
-            duplicated_graphs += g
+            g = self._merge_graphs([self.graphs[_idx] for _idx in index])
+            duplicated_graphs.append(g)
             # save graphs (optional)
             if save_merged_dataset == True:
-                filename = os.path.join(output_prefix, 'misc', molname)
-                os.makedirs(filename, exist_ok=False)
+                output_prefix = os.path.join(output_directory_path, 'misc', molname)
+                #os.makedirs(output_prefix, exist_ok=True)
                 g.save(output_prefix)
 
         # update in place
         new_graphs = unique_graphs + duplicated_graphs
-        self.graph = new_graphs
+        logging.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
+        self.graphs = new_graphs
         del unique_graphs, duplicated_graphs, df, duplicated_df
 
 
@@ -215,7 +232,7 @@ class CustomGraphDataset(GraphDataset):
     
         Parameters
         ----------
-        max_relative_energy : float, default=0.1 (unit: hartee)
+        relative_energy_threshold : float, default=0.1 (unit: hartee)
             The maximum relative energy respect to minima
         
         node_feature : str, default=None
@@ -503,9 +520,13 @@ class CustomGraphDataset(GraphDataset):
         -------
         g : single espaloma.graphs.graph.Graph
         """
-        import copy
-        g = copy.deepcopy(ds[0])
+        # check if graphs are equivalent
+        self._check_equivalent_graphs(ds)
 
+        import copy
+        import torch
+
+        g = copy.deepcopy(ds[0])
         for key in g.nodes['g'].data.keys():
             if key not in ["sum_q"]:
                 for i in range(1, len(ds)):
@@ -515,7 +536,6 @@ class CustomGraphDataset(GraphDataset):
                 for i in range(1, len(ds)):
                     if key == "xyz":
                         n_confs = ds[i].nodes['n1'].data['xyz'].shape[1]
-                        print(f"Number of conformation: {n_confs}")
                     g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], ds[i].nodes['n1'].data[key]), dim=1)
         
         return g
@@ -528,6 +548,8 @@ class CustomGraphDataset(GraphDataset):
         ----------
         ds : list of espaloma.graphs.graph.Graph
         """
+        import numpy as np
+
         for i in range(1, len(ds)):
             # openff molecule
             assert ds[0].mol == ds[i].mol
