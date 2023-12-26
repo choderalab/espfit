@@ -75,6 +75,7 @@ class CustomGraphDataset(GraphDataset):
     >>> ds.compute_relative_energy()
     """
 
+
     def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', RANDOM_SEED=2666):
         """Construct custom GraphDataset instance to prepare QC dataset for espaloma training.
 
@@ -292,10 +293,15 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------
         forcefield_list : list, default=['openff-2.0.0']
-            Supports all force fields that can be loaded by openmmforcefields.generators.SystemGenerator.
-            e.g. 'gaff-1.81', 'gaff-2.11', 'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
-                 'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
+            Currently supports the following force fields:
+            'gaff-1.81', 'gaff-2.11', 'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
+            'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
 
+            >>> g = CustomGraphDataset()
+            >>> g.available_forcefields
+
+            In general, it supports all force fields that can be loaded by openmmforcefields.generators.SystemGenerator.
+                    
         References
         ----------
         [1] https://github.com/choderalab/espaloma/espaloma/data/md.py
@@ -314,11 +320,7 @@ class CustomGraphDataset(GraphDataset):
         COLLISION_RATE = 1.0 / unit.picosecond
         EPSILON_MIN = 0.05 * unit.kilojoules_per_mole
 
-        SUPPORTED_FORCEFIELD_LIST = [
-            'gaff-1.81', 'gaff-2.11', 'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
-            'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
-            ]
-        if not all(_ in SUPPORTED_FORCEFIELD_LIST for _ in forcefield_list):
+        if not all(_ in self.available_forcefields for _ in forcefield_list):
             raise Exception(f'{forcefield} force field not supported. Supported force fields are {SUPPORTED_FORCEFIELD_LIST}.')
 
         new_graphs = []
@@ -552,3 +554,17 @@ class CustomGraphDataset(GraphDataset):
         
         return g
 
+
+    @property
+    def available_forcefields(self):
+        """Available force fields to compute baseline energies and forces.
+
+        List of available force fields are hard coded but any force fields that are callable from 
+        `openmmforcefields.generators.SystemGenerator` are supported.
+        """
+        ff_list = [
+            'gaff-1.81', 'gaff-2.11', 
+            'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
+            'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
+        ]
+        return ff_list
