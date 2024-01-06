@@ -52,7 +52,6 @@ class CustomGraphDataset(GraphDataset):
 
     Examples
     --------
-
     >>> from espaloma.data.dataset import GraphDataset
     >>> path = 'espfit/data/qcdata/before-ff-calc/protein-torsion-sm'
     >>> ds = GraphDataset.load(path)
@@ -81,7 +80,6 @@ class CustomGraphDataset(GraphDataset):
 
         Parameters
         ----------
-
         graphs : list of espaloma.graphs.graph.Graph, default=[]
             DGL graphs loaded from espaloma.data.dataset.GraphDataset.load
              
@@ -179,7 +177,6 @@ class CustomGraphDataset(GraphDataset):
 
         Notes
         -----
-
         subtract_vdw=False, substract_ele=False:
             Fit valence terms only
 
