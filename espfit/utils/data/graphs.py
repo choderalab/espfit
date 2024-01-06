@@ -23,25 +23,25 @@ class CustomGraphDataset(GraphDataset):
     Methods
     -------
     drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
-        Drop and merge duplicate nonisomeric smiles across different data sources
+        Drop and merge duplicate nonisomeric smiles across different data sources.
 
     subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True):
-        Subtract nonbonded interactions from QC reference
+        Subtract nonbonded interactions from QC reference.
 
     filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref'):
-        Filter high energy conformers and ensure minimum number of conformers
+        Filter high energy conformers and ensure minimum number of conformers.
 
     filter_minimum_conformers(n_conformer_threshold=3):
-        Filter molecules with conformers below given threshold
+        Filter molecules with conformers below given threshold.
 
     compute_baseline_energy_force(forcefield_list=['openff-2.0.0']):
-        Compute energies and forces using other force fields 
+        Compute energies and forces using other force fields.
 
     reshape_conformation_size(n_confs=50):
         Reshape conformation size.
     
     compute_relative_energy():
-        Compute relative energy for both QM and MM energies with the mean set to zero
+        Compute relative energy for both QM and MM energies with the mean set to zero.
 
     Notes
     -----
@@ -81,7 +81,7 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------
         graphs : list of espaloma.graphs.graph.Graph, default=[]
-            DGL graphs loaded from espaloma.data.dataset.GraphDataset.load
+            DGL graphs loaded from `espaloma.data.dataset.GraphDataset.load`.
              
         reference_forcefield : str, default=openff-2.0.0
             Reference force field used to compute force field parameters if not present in espaloma.
@@ -104,13 +104,13 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------
         save_merged_datest : boolean, default=True
-            If True, then merged datasets will be saved as a new dataset
+            If True, then merged datasets will be saved as a new dataset.
         
         dataset_name : str, default=misc
-            Name of the merged dataset
+            Name of the merged dataset.
         
         output_directory_path : str, default='.'
-            Directory path to save the new dataset
+            Directory path to save the new dataset.
         """
         import os
         import pandas as pd
@@ -168,26 +168,26 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------
         subtract_vdw : boolean, default=False
-            Subtract van der Waals interactions from QM reference
-            If subtracted, vdw parameters should be refitted during espaloma training
+            Subtract van der Waals interactions from QM reference.
+            If subtracted, vdw parameters should be refitted during espaloma training.
         
         subtract_ele : boolean, default=True
-            Subtract electrostatic interactions from QM reference
-            If subtracted, partial charges should be refitted during espaloma training
+            Subtract electrostatic interactions from QM reference.
+            If subtracted, partial charges should be refitted during espaloma training.
 
         Notes
         -----
         subtract_vdw=False, substract_ele=False:
-            Fit valence terms only
+            Fit valence terms only.
 
         subtract_vdw=False, subtract_ele=True:
-            Fit valence terms and partial charges (electrostatic terms)
+            Fit valence terms and partial charges (electrostatic terms).
         
         subtract_vdw=True, subtract_ele=False:
-            Fit valence and vdw terms (THIS IS NOT SUPPORTED)
+            Fit valence and vdw terms (THIS IS NOT SUPPORTED).
 
         subtract_vdw=True, subtract_ele=True:
-            Fit both valence and nonbonded terms (THIS IS NOT SUPPORTED)
+            Fit both valence and nonbonded terms (THIS IS NOT SUPPORTED).
 
         """
         new_graphs = []
@@ -215,7 +215,7 @@ class CustomGraphDataset(GraphDataset):
             elif subtract_vdw == False and subtract_ele == False:
                 g = subtract_nonbonded_force(g, forcefield=self.reference_forcefield, subtract_charges=False)
             else:
-                raise Exception(f'Current option is not supported (subtract_vdw={subtract_vdw}, subtract_ele={substract_ele})')
+                raise Exception(f'Current option is not supported (subtract_vdw={subtract_vdw}, subtract_ele={subtract_ele})')
             new_graphs.append(g)
         
         # update in place
@@ -231,11 +231,11 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------
         relative_energy_threshold : float, default=0.1 (unit: hartee)
-            The maximum relative energy respect to minima
+            The maximum relative energy respect to minima.
         
         node_feature : str, default=None
-            Node feature name that is referred to when filtering the conformers
-            Usually, this should be `u_ref` or `u_qm` which are stored under node type `g`
+            Node feature name that is referred to when filtering the conformers.
+            Usually, this should be `u_ref` or `u_qm` which are stored under node type `g`.
         """
         if node_feature == None:
             raise Exception(f'Please specify the node feature name under node type `g`')
@@ -268,7 +268,7 @@ class CustomGraphDataset(GraphDataset):
         Parameters
         ----------        
         n_conformer_threshold : int, default=3
-            The minimium number of conformers per entry
+            The minimium number of conformers per entry.
         """
         new_graphs = []
         for i, g in enumerate(self.graphs):
@@ -510,15 +510,18 @@ class CustomGraphDataset(GraphDataset):
 
     @staticmethod
     def _merge_graphs(ds):
-        """Merge multiple dgl graph in place.
+        """Merge multiple Graph instances into a single Graph.
 
         Parameters
         ----------
         ds : list of espaloma.graphs.graph.Graph
+            The list of Graph instances to be merged. All Graphs in the list must be equivalent.
 
         Returns
         -------
         g : single espaloma.graphs.graph.Graph
+            The merged Graph. This is a deep copy of the first Graph in the input list, 
+            with its node features updated to include those of the other graphs.
         """
         import numpy as np
         import copy
