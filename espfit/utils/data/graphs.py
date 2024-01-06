@@ -76,7 +76,7 @@ class CustomGraphDataset(GraphDataset):
     """
 
 
-    def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', RANDOM_SEED=2666):
+    def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', random_seed=2666):
         """Construct custom GraphDataset instance to prepare QC dataset for espaloma training.
 
         Parameters
@@ -89,13 +89,13 @@ class CustomGraphDataset(GraphDataset):
             Reference force field used to compute force field parameters if not present in espaloma.
             The default behavior is to compute the LJ parameters with `reference_forcefield`.
         
-        RANDOM_SEED : int, default=2666
+        random_seed : int, default=2666
             Random seed used throughout the instance.
         """
         super(CustomGraphDataset, self).__init__()
         self.graphs = graphs
         self.reference_forcefield = reference_forcefield
-        self.random_seed = RANDOM_SEED
+        self.random_seed = random_seed
 
 
     def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
