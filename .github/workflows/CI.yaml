@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - "main"
-      - "mockcode"
   pull_request:
     branches:
       - "main"
