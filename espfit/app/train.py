@@ -240,8 +240,7 @@ class EspalomaModel(object):
             The frequency at which the model should be saved.
 
         output_prefix : str, default=None
-            The directory where the model checkpoints should be saved. If not provided, the 'checkpoints' directory in the 
-            current working directory will be used.
+            The directory where the model checkpoints should be saved. If not provided, current working directory will be used.
 
         Returns
         -------
@@ -251,7 +250,7 @@ class EspalomaModel(object):
         import dgl
         import torch
         from pathlib import Path
-        output_prefix = Path.cwd() / 'checkpoints'
+        output_prefix = Path.cwd()
 
         # espaloma settings for training
         config = self.config['espaloma']['train']
@@ -268,15 +267,16 @@ class EspalomaModel(object):
         step = self._restart_checkpoint(output_prefix)
 
         # train
+        # https://github.com/choderalab/espaloma/blob/main/espaloma/app/train.py#L33
+        # https://github.com/choderalab/espaloma/blob/main/espaloma/data/dataset.py#L310
         from espfit.utils.units import HARTEE_TO_KCALPERMOL
-        #ds_tr_loader = dgl.dataloading.GraphDataLoader(self.train_dataset, batch_size=batch_size, shuffle=True)
-        ds_tr_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size, shuffle=True)
+        ds_tr_loader = self.train_dataset.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         with torch.autograd.set_detect_anomaly(True):
             for i in range(step, step+epochs):
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
-                    g = g.to("cuda:0")
+                    g = g.to("cuda:0")   # TODO: Better way to handle this?
                     g.nodes["n1"].data["xyz"].requires_grad = True 
                     loss = self.net(g)
                     loss.backward()
