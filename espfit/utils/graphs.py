@@ -68,6 +68,9 @@ class CustomGraphDataset(GraphDataset):
     >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
     >>> # compute energies and forces using other force fields
     >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.0.0'])
+    >>> # regenerate improper torsions in-place
+    >>> from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
+    >>> ds.apply(regenerate_impropers, in_place=True)
     >>> # reshape conformation size
     >>> ds.reshape_conformation_size(n_confs=50)
     >>> # compute relative energy. QM and MM energies mean are set to zero.
