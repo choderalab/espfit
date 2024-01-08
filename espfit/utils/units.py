@@ -1,0 +1,3 @@
+# Constants for unit conversions
+HARTEE_TO_KCALPERMOL = 627.509
+BOHR_TO_ANGSTROMS = 0.529177
