@@ -3,11 +3,13 @@ Create espaloma network model and train the model.
 
 TODO
 ----
+* Add support to use multiple GPUs
+* Add support to validate model? (or use independent script?)
+* Add support to save model? (or use independent script?)
 """
 import logging
 
 _logger = logging.getLogger(__name__)
-logging.basicConfig(format='[%(levelname)s] %(asctime)s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 
 
 class EspalomaModel(object):
@@ -21,14 +23,17 @@ class EspalomaModel(object):
     Examples
     --------
     >>> from espfit.app.train import EspalomaModel
-    >>> filename = 'examples/espaloma_config.toml'
+    >>> filename = 'examples/config.toml'
     >>> # create espaloma network model from toml file
     >>> model = EspalomaModel.from_toml(filename)
     >>> # check espaloma network model
     >>> model.net
+    >>> # load training dataset
+    >>> model.dataset_train = ds
+    >>> model.train()
     """
 
-    def __init__(self, net=None, train_dataset=None, validation_dataset=None, test_dataset=None, random_seed=2666):
+    def __init__(self, net=None, dataset_train=None, dataset_validation=None, dataset_test=None, random_seed=2666):
         """Initialize an instance of the class with an Espaloma network model and a random seed.
 
         This constructor method sets up the Espaloma network model, the training, validation, test datasets, 
@@ -41,22 +46,22 @@ class EspalomaModel(object):
         net : torch.nn.Sequential, default=None
             The Espaloma network model to be used for training.
 
-        train_dataset : espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
+        dataset_train : espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
             The training dataset. espaloma.graphs.graph.Graph. If not provided, the `train_data` attribute will be set to None.
 
-        validation_dataset : espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
+        dataset_validation : espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
             The validation dataset. If not provided, the `validation_data` attribute will be set to None.
 
-        test_dataset : Dataset, espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
+        dataset_test : Dataset, espfit.utils.data.graphs.CustomGraphDataset or espaloma.data.dataset.GraphDataset, default=None
             The test dataset. If not provided, the `test_data` attribute will be set to None.
 
         random_seed : int, default=2666
             The random seed used throughout the espaloma training.
         """
         self.net = net
-        self.train_dataset = train_dataset
-        self.validation_dataset = validation_dataset
-        self.test_dataset = test_dataset
+        self.dataset_train = dataset_train
+        self.dataset_validation = dataset_validation
+        self.dataset_test = dataset_test
         self.random_seed = random_seed
         self.config = None   # TODO: Better way to handle this?
 
@@ -201,20 +206,19 @@ class EspalomaModel(object):
         import glob
         import torch
 
-        checkpoints = glob.glob("{}/*.th".format(output_prefix))
+        checkpoints = glob.glob("{}/*.pt".format(output_prefix))
         
         if checkpoints:
             n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
             n.sort()
-            last_step = n[-1]
-            last_checkpoint = os.path.join(output_prefix, f"net{last_step}.pt")
-            self.net.load_state_dict(torch.load(last_checkpoint))
-            step = last_step + 1
-            logging.info(f'Restarting from ({last_checkpoint}).')
+            restart_epoch = n[-1]
+            restart_checkpoint = os.path.join(output_prefix, f"net{restart_epoch}.pt")
+            self.net.load_state_dict(torch.load(restart_checkpoint))
+            logging.info(f'Restarting from ({restart_checkpoint}).')
         else:
-            step = 1
+            restart_epoch = 0
         
-        return step
+        return restart_epoch
     
 
     def train(self, epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_prefix=None):
@@ -250,30 +254,42 @@ class EspalomaModel(object):
         import dgl
         import torch
         from pathlib import Path
-        output_prefix = Path.cwd()
 
+        # check if training dataset is provided
+        if self.dataset_train is None:
+            raise ValueError('Training dataset is not provided.')
+        
         # espaloma settings for training
         config = self.config['espaloma']['train']
         epochs = config.get('epochs', epochs)
         batch_size = config.get('batch_size', batch_size)
         learning_rate = config.get('learning_rate', learning_rate)
         checkpoint_frequency = config.get('checkpoint_frequency', checkpoint_frequency)
+        output_prefix = Path.cwd()
         output_prefix = config.get('output_prefix', output_prefix)
 
         # create output directory if not exists
         os.makedirs(output_prefix, exist_ok=True)
 
         # restart from checkpoint if exists
-        step = self._restart_checkpoint(output_prefix)
+        restart_epoch = self._restart_checkpoint(output_prefix)
+        if restart_epoch >= epochs:
+            _logger.info(f'Already trained for {epochs} epochs.')
+            return
+        elif restart_epoch > 0:
+            _logger.info(f'Training for additional {epochs-restart_epoch} epochs.')
+        else:
+            _logger.info(f'Training from scratch for {epochs} epochs.')
 
         # train
         # https://github.com/choderalab/espaloma/blob/main/espaloma/app/train.py#L33
-        # https://github.com/choderalab/espaloma/blob/main/espaloma/data/dataset.py#L310
+        # https://github.com/choderalab/espaloma/blob/main/espaloma/data/dataset.py#L310            
         from espfit.utils.units import HARTEE_TO_KCALPERMOL
-        ds_tr_loader = self.train_dataset.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
+        ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         with torch.autograd.set_detect_anomaly(True):
-            for i in range(step, step+epochs):
+            for i in range(restart_epoch, epochs):
+                epoch = i + 1    # start from epoch 1 (not zero-indexing)
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
                     g = g.to("cuda:0")   # TODO: Better way to handle this?
@@ -281,34 +297,17 @@ class EspalomaModel(object):
                     loss = self.net(g)
                     loss.backward()
                     optimizer.step()
-                if i % checkpoint_frequency == 0:
+                if epoch % checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    logging.info(f'Epoch {i}: {_loss:.3f}')
-                    checkpoint_file = os.path.join(output_prefix, f"net{i}.pt")
+                    _logger.info(f'epoch {epoch}: {_loss:.3f}')
+                    checkpoint_file = os.path.join(output_prefix, f"net{epoch}.pt")
                     torch.save(self.net.state_dict(), checkpoint_file)
 
 
-    def train_val():
-        raise NotImplementedError
-
-    
-    def train_data():
+    def validate():
         raise NotImplementedError
 
 
-    def validation_data():
+    def save_model():
         raise NotImplementedError
-
-
-    def test_data():
-        raise NotImplementedError
-
-
-    def save():
-        raise NotImplementedError
-
-
-    def plot_loss():
-        raise NotImplementedError
-

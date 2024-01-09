@@ -11,7 +11,7 @@ stage2 = [ 512, "relu", 0.1, 512, "relu", 0.1, 512, "relu", 0.1, 512, "relu", 0.
 
 # training
 [espaloma.train]
-epochs = 10
+epochs = 20
 batch_size = 128
 learning_rate = 1e-4
 checkpoint_frequency = 10

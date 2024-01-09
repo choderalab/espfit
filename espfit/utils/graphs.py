@@ -4,17 +4,13 @@ Custom GraphDataset with additional support to manipulate DGL graphs.
 TODO
 ----
 * Use type hint?
-* Allow user to define logging level
-* Add more logging info
 * Add option to keep minimum energy conformer for each chunked dataset in `reshape_conformation_size()`
 """
 
 import logging
-import espaloma as esp
 from espaloma.data.dataset import GraphDataset
 
 _logger = logging.getLogger(__name__)
-logging.basicConfig(format='[%(levelname)s] %(asctime)s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 
 
 class CustomGraphDataset(GraphDataset):
@@ -118,26 +114,26 @@ class CustomGraphDataset(GraphDataset):
         import os
         import pandas as pd
 
-        logging.info(f'Drop and merge duplicate smiles')
+        _logger.info(f'Drop and merge duplicate smiles')
         smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
-        logging.info(f'Found {len(smiles)} molecules')
+        _logger.info(f'Found {len(smiles)} molecules')
 
         # unique entries
         df = pd.DataFrame.from_dict({'smiles': smiles})
         unique_index = df.drop_duplicates(keep=False).index.to_list()
         unique_graphs = [self.graphs[_idx] for _idx in unique_index]
-        logging.info(f'Found {len(unique_index)} unique molecules')
+        _logger.info(f'Found {len(unique_index)} unique molecules')
 
         # duplicated entries
         index = df.duplicated(keep=False)   # mark all duplicate entries True
         duplicated_index = df[index].index.to_list()
-        logging.info(f'Found {len(duplicated_index)} duplicated molecules')
+        _logger.info(f'Found {len(duplicated_index)} duplicated molecules')
         
         # get unique smiles and assign new molecule name `e.g. mol0001`
         duplicated_df = df.iloc[duplicated_index]
         duplicated_smiles = duplicated_df.smiles.unique().tolist()
         molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
-        logging.info(f'Found {len(molnames)} unique molecules within duplicate entries')
+        _logger.info(f'Found {len(molnames)} unique molecules within duplicate entries')
 
         # merge duplicate entries into a new single graph
         duplicated_graphs = []
@@ -157,7 +153,7 @@ class CustomGraphDataset(GraphDataset):
 
         # update in place
         new_graphs = unique_graphs + duplicated_graphs
-        logging.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
+        _logger.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
         self.graphs = new_graphs
         del unique_graphs, duplicated_graphs, df, duplicated_df
 
@@ -307,8 +303,9 @@ class CustomGraphDataset(GraphDataset):
         [1] https://github.com/choderalab/espaloma/espaloma/data/md.py
         [2] https://github.com/choderalab/refit-espaloma/blob/main/openff-default/02-train/merge-data/script/calc_ff.py    
         """
-        import numpy as np
         import torch
+        import numpy as np
+        from espaloma import units as espunits
         from openmm import openmm, unit
         from openmm.app import Simulation
         from openmm.unit import Quantity
@@ -318,7 +315,6 @@ class CustomGraphDataset(GraphDataset):
         TEMPERATURE = 350 * unit.kelvin
         STEP_SIZE = 1.0 * unit.femtosecond
         COLLISION_RATE = 1.0 / unit.picosecond
-        EPSILON_MIN = 0.05 * unit.kilojoules_per_mole
 
         if not all(_ in self.available_forcefields for _ in forcefield_list):
             raise Exception(f'{forcefield} force field not supported. Supported force fields are {SUPPORTED_FORCEFIELD_LIST}.')
@@ -363,7 +359,7 @@ class CustomGraphDataset(GraphDataset):
                 xs = (
                     Quantity(
                         g.nodes["n1"].data["xyz"].detach().numpy(),
-                        esp.units.DISTANCE_UNIT,
+                        espunits.DISTANCE_UNIT,
                     )
                     .value_in_unit(unit.nanometer)
                     .transpose((1, 0, 2))
@@ -373,12 +369,12 @@ class CustomGraphDataset(GraphDataset):
                     us.append(
                         simulation.context.getState(getEnergy=True)
                         .getPotentialEnergy()
-                        .value_in_unit(esp.units.ENERGY_UNIT)
+                        .value_in_unit(espunits.ENERGY_UNIT)
                     )
                     us_prime.append(
                         simulation.context.getState(getForces=True)
                         .getForces(asNumpy=True)
-                        .value_in_unit(esp.units.FORCE_UNIT) * -1
+                        .value_in_unit(espunits.FORCE_UNIT) * -1
                     )
 
                 us = torch.tensor(us, dtype=torch.float64)[None, :]
@@ -429,7 +425,7 @@ class CustomGraphDataset(GraphDataset):
         n_confs : int, default=50
             Number of conformations per graph (molecule).
         """
-        logging.info(f'Reshape graphs size')
+        _logger.info(f'Reshape graphs size')
         
         import random
         import copy
@@ -443,13 +439,13 @@ class CustomGraphDataset(GraphDataset):
             n = g.nodes['n1'].data['xyz'].shape[1]
 
             if n == n_confs:
-                logging.info(f"Molecule #{i} ({n} conformations)")
+                _logger.info(f"Molecule #{i} ({n} conformations)")
                 new_graphs.append(g)
 
             elif n < n_confs:
                 random.seed(self.random_seed)
                 index_random = random.choices(range(0, n), k=n_confs-n)
-                logging.info(f"Molecule #{i} ({n} conformations). Randomly select {len(index_random)} conformations")
+                _logger.info(f"Molecule #{i} ({n} conformations). Randomly select {len(index_random)} conformations")
 
                 _g = copy.deepcopy(g)
                 _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
@@ -458,7 +454,7 @@ class CustomGraphDataset(GraphDataset):
                 new_graphs.append(_g)
 
             else:
-                logging.info(f"Molecule #{i} ({n} conformations). Shuffle indices and split data into chunks")
+                _logger.info(f"Molecule #{i} ({n} conformations). Shuffle indices and split data into chunks")
                 random.seed(self.random_seed)
                 idx_range = random.sample(range(n), k=n)
                 for j in range(n // n_confs + 1):
@@ -468,7 +464,7 @@ class CustomGraphDataset(GraphDataset):
                         index = range(j*n_confs, n)
                         random.seed(self.random_seed)
                         index_random = random.choices(range(0, n), k=(j+1)*n_confs-n)
-                        logging.info(f"Iteration {j}: Randomly select {len(index_random)} conformers")
+                        _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
 
                         _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'][:, index], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
                         _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'][:, index, :], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
@@ -477,7 +473,7 @@ class CustomGraphDataset(GraphDataset):
                         idx1 = j*n_confs
                         idx2 = (j+1)*n_confs
                         index = idx_range[idx1:idx2]
-                        logging.info(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
+                        _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
 
                         _g.nodes["g"].data["u_ref"] = _g.nodes['g'].data['u_ref'][:, index]
                         _g.nodes["n1"].data["xyz"] = _g.nodes['n1'].data['xyz'][:, index, :]

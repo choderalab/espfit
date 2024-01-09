@@ -2,7 +2,6 @@ import torch
 import logging
 
 _logger = logging.getLogger(__name__)
-logging.basicConfig(format='[%(levelname)s] %(asctime)s %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
 
 
 class ExpCoeff(torch.nn.Module):
@@ -113,14 +112,14 @@ class GetLoss(torch.nn.Module):
         loss_energy = self.compute_energy_loss(g) * self.weights['energy']
         loss_force = self.compute_force_loss(g) * self.weights['force']
 
-        if self.charge_weight > 0:
+        if self.weights['charge'] > 0:
             loss_charge = self.compute_charge_loss(g) * self.weights['charge']
-        if self.torsion_weight > 0 and g.number_of_nodes('n4') > 0:
+        if self.weights['torsion'] > 0 and g.number_of_nodes('n4') > 0:
             loss_torsion = self.compute_torsion_loss(g) * self.weights['torsion']
-        if self.improper_weight > 0 and g.number_of_nodes('n4_improper') > 0:
+        if self.weights['improper'] > 0 and g.number_of_nodes('n4_improper') > 0:
             loss_improper = self.compute_improper_loss(g) * self.weights['improper']
 
-        logging.info(f"# energy: {loss_energy}, force: {loss_force}, charge: {loss_charge}, torsion: {loss_torsion}, improper: {loss_improper}")
+        _logger.debug(f"energy: {loss_energy:.5f}, force: {loss_force:.5f}, charge: {loss_charge:.5f}, torsion: {loss_torsion:.5f}, improper: {loss_improper:.5f}")
         loss = loss_energy + loss_force + loss_charge + loss_torsion + loss_improper
         
         return loss
