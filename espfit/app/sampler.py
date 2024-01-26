@@ -131,6 +131,94 @@ class SetupSampler(BaseSimulation):
     Use espaloma force field as default to self-consistently parameterize the biopolymer-ligand system.
     Use Perses 0.10.1 default parameter settings to setup the system.
 
+    Parameters
+    ----------
+    small_molecule_forcefield : str, optional
+        The force field to be used for small molecules. Default is 'openff-2.1.0'.
+    forcefield_files : list, optional
+        List of force field files. Default is ['amber14-all.xml'].
+    water_model : str, optional
+        The water model to be used. Default is 'tip3p'.
+    solvent_padding : Quantity, optional
+        The padding distance around the solute in the solvent box. Default is 9.0 * unit.angstroms.
+    ionic_strength : Quantity, optional
+        The ionic strength of the solvent. Default is 0.15 * unit.molar.
+    constraints : object, optional
+        The type of constraints to be applied to the system. Default is app.HBonds.
+    hmass : Quantity, optional
+        The mass of the hydrogen atoms. Default is 3.0 * unit.amu.
+    temperature : Quantity, optional
+        The temperature of the system. Default is 300.0 * unit.kelvin.
+    pressure : Quantity, optional
+        The pressure of the system. Default is 1.0 * unit.atmosphere.
+    pme_tol : float, optional
+        The Ewald error tolerance for PME electrostatics. Default is 2.5e-04.
+    nonbonded_method : object, optional
+        The nonbonded method to be used for the system. Default is app.PME.
+    barostat_period : int, optional
+        The frequency at which the barostat is applied. Default is 50.
+    timestep : Quantity, optional
+        The integration timestep. Default is 4 * unit.femtoseconds.
+    override_with_espaloma : bool, optional
+        Whether to override the original parameters with espaloma. Default is True.
+
+    Methods
+    -------
+    create_system(biopolymer_file=None, ligand_file=None):
+        Create biopolymer-ligand system and export serialized system XML file and solvated pdb file.
+
+    Examples
+    --------
+    >>> from espfit.app.sampler import SetupSampler
+    >>> c = SetupSampler()
+    >>> c.create_system(biopolymer_file='protein.pdb', ligand_file='ligand.sdf')
+    >>> c.minimize()
+    >>> c.run()
+    """
+    def __init__(self, 
+                 small_molecule_forcefield='openff-2.1.0', 
+                 forcefield_files = ['amber14-all.xml'], 
+                 water_model='tip3p', 
+                 solvent_padding=9.0 * unit.angstroms, 
+                 ionic_strength=0.15 * unit.molar, 
+                 constraints=app.HBonds, 
+                 hmass=3.0 * unit.amu, 
+                 temperature=300.0 * unit.kelvin, 
+                 pressure=1.0 * unit.atmosphere, 
+                 pme_tol=2.5e-04, 
+                 nonbonded_method=app.PME, 
+                 barostat_period=50, 
+                 timestep=4 * unit.femtoseconds, 
+                 override_with_espaloma=True,
+                 ):
+        super(SetupSampler, self).__init__()
+        self.small_molecule_forcefield = small_molecule_forcefield
+        self.water_model = water_model
+        self.forcefield_files = self._update_forcefield_files(forcefield_files)
+        self.solvent_padding = solvent_padding
+        self.ionic_strength = ionic_strength
+        self.constraints = constraints
+        self.hmass = hmass
+        self.temperature = temperature
+        self.pressure = pressure
+        self.pme_tol = pme_tol
+        self.nonbonded_method = nonbonded_method
+        self.barostat_period = barostat_period
+        self.timestep = timestep
+        self.override_with_espaloma = override_with_espaloma
+
+    # Rest of the code...
+class SetupSampler(BaseSimulation):
+    """Create biopolymer-ligand system.
+
+    Use espaloma force field as default to self-consistently parameterize the biopolymer-ligand system.
+    Use Perses 0.10.1 default parameter settings to setup the system.
+
+    Methods
+    -------
+    create_system(biopolymer_file=None, ligand_file=None):
+    
+    
     Examples
     --------
     >>> from espfit.app.sampler import SetupSampler
