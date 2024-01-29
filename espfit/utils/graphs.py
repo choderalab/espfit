@@ -55,10 +55,10 @@ class CustomGraphDataset(GraphDataset):
     >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.')
     >>> # subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
     >>> # this will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
-    >>> ds.subtract_nobonded_interactions(subtract_vdw=False, subtract_ele=True)
+    >>> ds.subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True)
     >>> # filter high energy conformers (u_qm: QM reference before nonbonded interations are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_qm')
-    >>> # filter high energy conformers (u_ref: QM reference after nonbonded interactions are substracted)
+    >>> # filter high energy conformers (u_ref: QM reference after nonbonded interactions are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref')
     >>> # filter conformers below certain number
     >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
@@ -147,8 +147,11 @@ class CustomGraphDataset(GraphDataset):
             duplicated_graphs.append(g)
             # save graphs (optional)
             if save_merged_dataset == True:
-                output_prefix = os.path.join(output_directory_path, 'misc', molname)
-                #os.makedirs(output_prefix, exist_ok=True)
+                # Notes: Create a temporary directory, `_output_prefix`, to support pytest in test_utils_graphs.py.
+                # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
+                _output_prefix = os.path.join(output_directory_path, dataset_name)
+                os.makedirs(_output_prefix, exist_ok=True)
+                output_prefix = os.path.join(_output_prefix, molname)
                 g.save(output_prefix)
 
         # update in place
