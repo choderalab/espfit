@@ -68,11 +68,12 @@ class BaseSimulation(object):
                     self.atom_indices.append(a.index)
 
         # Define reporter
+        import os
         from mdtraj.reporters import NetCDFReporter
         from openmm.app import CheckpointReporter, StateDataReporter
-        self.simulation.reporters.append(NetCDFReporter('traj.nc', self.netcdf_frequency, atomSubset=self.atom_indices))
-        self.simulation.reporters.append(CheckpointReporter('checkpoint.chk', self.checkpoint_frequency))
-        self.simulation.reporters.append(StateDataReporter('reporter.log', self.logging_frequency, step=True, potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
+        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_prefix, 'traj.nc'), self.netcdf_frequency, atomSubset=self.atom_indices))
+        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_prefix, 'checkpoint.chk'), self.checkpoint_frequency))
+        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, 'reporter.log'), self.logging_frequency, step=True, potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
         # Run
         _logger.info(f"Run MD simulation for {self.nsteps} steps")
         self.simulation.step(self.nsteps)
@@ -83,7 +84,7 @@ class BaseSimulation(object):
 
         TODO
         ----
-        - Should output filenames be specified by users?
+        - Currently, the output filenames are hard-coded. Should output filenames be specified by users?
         """
         _logger.info(f"Serialize and export system")
 
