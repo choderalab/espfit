@@ -254,9 +254,14 @@ class EspalomaModel(object):
         import torch
         from pathlib import Path
 
-        # check if GPU is available
-        if not torch.cuda.is_available():
-            raise ValueError('GPU is required for training.')
+        # change default device to GPU if available
+        # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
+        if torch.cuda.is_available():
+            _logger.info('GPU is available for training.')
+            torch.set_default_device('cuda')
+        else:
+            _logger.info('GPU is not available for training.')
+
         
         # check if training dataset is provided
         if self.dataset_train is None:
@@ -296,7 +301,7 @@ class EspalomaModel(object):
                     epoch = i + 1    # start from epoch 1 (not zero-indexing)
                     for g in ds_tr_loader:
                         optimizer.zero_grad()
-                        g = g.to("cuda:0")   # TODO: Better way to handle this?
+                        #g = g.to("cuda:0")   # TODO: Better way to handle this?
                         g.nodes["n1"].data["xyz"].requires_grad = True 
                         loss = self.net(g)
                         loss.backward()
