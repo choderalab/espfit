@@ -262,7 +262,6 @@ class EspalomaModel(object):
         else:
             _logger.info('GPU is not available for training.')
 
-        
         # check if training dataset is provided
         if self.dataset_train is None:
             raise ValueError('Training dataset is not provided.')
