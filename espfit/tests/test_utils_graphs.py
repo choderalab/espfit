@@ -9,40 +9,43 @@ paths = [
     'data/qcdata/openff-toolkit-0.10.6/dgl2/rna-diverse-sm',
 ]
 
+
 @pytest.fixture
 def mydata_gen2_torsion_sm():
-    """
-    Fixture function to load gen2-torsion-sm dataset.
+    """Fixture function to load gen2-torsion-sm dataset.
     
     Returns
     -------
-        CustomGraphDataset: The loaded dataset.
+    ds : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
     """
     mydata = files('espfit').joinpath(paths[0])   # PosixPath
     ds = CustomGraphDataset.load(str(mydata))
     return ds
 
+
 @pytest.fixture
 def mydata_protein_torsion_sm():
-    """
-    Fixture function to load protein-torsion-sm dataset.
+    """Fixture function to load protein-torsion-sm dataset.
         
     Returns
     -------
-        CustomGraphDataset: The loaded dataset.
+    ds : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `protein torsion`.
     """
     mydata = files('espfit').joinpath(paths[1])   # PosixPath
     ds = CustomGraphDataset.load(str(mydata))
     return ds
 
+
 @pytest.fixture
 def mydata_rna_diverse_sm():
-    """
-    Fixture function to load rna-diverse-sm dataset.
+    """Fixture function to load rna-diverse-sm dataset.
         
     Returns
     -------
-        CustomGraphDataset: The loaded dataset.
+    ds : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `rna diverse`.
     """
     mydata = files('espfit').joinpath(paths[2])   # PosixPath
     ds = CustomGraphDataset.load(str(mydata))
@@ -50,16 +53,18 @@ def mydata_rna_diverse_sm():
 
 
 def test_load_dataset(mydata_gen2_torsion_sm):
-    """
-    Test the loading of a single dataset.
+    """Test the loading of a single dataset.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` to be loaded.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
 
     Raises
     ------
-        AssertionError: If the number of molecular conformers does not match.
+    AssertionError : If the number of molecular conformers does not match.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     nconfs = [g.nodes['g'].data['u_ref'].shape[1] for g in ds]
@@ -73,13 +78,21 @@ def test_load_dataset_multiple(mydata_gen2_torsion_sm, mydata_protein_torsion_sm
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
-        mydata_protein_torsion_sm: `CustomGraphDataset` for protein torsion.
-        mydata_rna_diverse_sm: `CustomGraphDataset` for diverse RNA.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
+
+    mydata_protein_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `protein torsion`.
+    
+    mydata_rna_diverse_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `rna diverse`
 
     Raises
     ------
-        AssertionError: If the total number of molecules or conformations does not match.
+    AssertionError : If the total number of molecules or conformations does not match.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     ds += mydata_protein_torsion_sm
@@ -90,13 +103,19 @@ def test_load_dataset_multiple(mydata_gen2_torsion_sm, mydata_protein_torsion_sm
 
 
 def test_drop_and_merge_duplicates(mydata_gen2_torsion_sm, tmpdir):
-    """
-    Test function to drop and merge duplicate molecules.
+    """Test function to drop and merge duplicate molecules.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
-        tmpdir: `tmpdir` fixture.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset of `gen2 torsion`.
+
+    tmpdir : tmpdir fixture from pytest
+
+    Returns
+    -------
+    ds : CustomGraphDataset
+        The modified unique dataset without any duplicate molecules.
     """
     ds = mydata_gen2_torsion_sm
     temporary_directory = tmpdir.mkdir('misc')
@@ -104,21 +123,27 @@ def test_drop_and_merge_duplicates(mydata_gen2_torsion_sm, tmpdir):
     nconfs = [ g.nodes['g'].data['u_ref'].shape[1] for g in ds ]
     assert nconfs == [24, 13, 24, 24, 24, 72], 'Number of molecular conformers does not match'
 
+    # return dataset to test espaloma refitting
+    return ds
+
 
 def test_subtract_nonbonded_interactions(mydata_gen2_torsion_sm):
-    """
-    Test the subtract_nonbonded_interactions function.
+    """Test the subtract_nonbonded_interactions function.
     
     This function checks if the 'u_qm' and 'u_qm_prime' attributes are correctly cloned from 'u_ref' and 'u_ref_prime'
     after subtracting nonbonded interactions.
     
     Parameteres
     -----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
     
     Raises
     ------
-        AssertionError: If 'u_qm' or 'u_qm_prime' attributes are not found in the test data.
+    AssertionError : If 'u_qm' or 'u_qm_prime' attributes are not found in the test data.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     ds.subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True)   # default settings
@@ -127,16 +152,19 @@ def test_subtract_nonbonded_interactions(mydata_gen2_torsion_sm):
 
 
 def test_filter_high_energy_conformers(mydata_gen2_torsion_sm):
-    """
-    Test function to filter high energy conformers.
+    """Test function to filter high energy conformers.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
 
     Raises
     ------
-        AssertionError: If the number of molecular conformers does not match.
+    AssertionError : If the number of molecular conformers does not match.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     # set relative_energy_thershold very small to ensure some conformers will be filtered
@@ -146,16 +174,19 @@ def test_filter_high_energy_conformers(mydata_gen2_torsion_sm):
 
 
 def test_filter_minimum_conformers(mydata_gen2_torsion_sm):
-    """
-    Test case for filtering molecules with conformers less than a certain threshold.
+    """Test case for filtering molecules with conformers less than a certain threshold.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
 
     Raises
     ------
-        AssertionError: If the number of molecular conformers does not match.
+    AssertionError : If the number of molecular conformers does not match.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     nconfs = [g.nodes['g'].data['u_ref'].shape[1] for g in ds]
@@ -164,16 +195,19 @@ def test_filter_minimum_conformers(mydata_gen2_torsion_sm):
 
 
 def test_compute_baseline_energy_force(mydata_protein_torsion_sm):
-    """
-    Test case for computing energy and force using other force fields.
+    """Test case for computing energy and force using other force fields.
 
     Parameters
     ----------
-        mydata_protein_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_protein_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
 
     Raises
     ------
-        AssertionError: If the key for other force field is not found in any of the graph nodes.
+    AssertionError : If the key for other force field is not found in any of the graph nodes.
+
+    Returns
+    -------
     """
     ds = mydata_protein_torsion_sm
     # remove all baseline forcefields
@@ -194,16 +228,19 @@ def test_compute_baseline_energy_force(mydata_protein_torsion_sm):
 
 
 def test_reshape_conformation_size(mydata_gen2_torsion_sm):
-    """
-    Test function to reshape all dgl graphs to have the same number of conformations.
+    """Test function to reshape all dgl graphs to have the same number of conformations.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
 
     Raises
     ------
-        AssertionError: If the number of conformations does not match.
+    AssertionError : If the number of conformations does not match.
+
+    Returns
+    -------
     """
     # Test 1) reshape all dgl graphs to have 30 conformations
     ds = mydata_gen2_torsion_sm
@@ -221,16 +258,19 @@ def test_reshape_conformation_size(mydata_gen2_torsion_sm):
 
 
 def test_compute_relative_energy(mydata_gen2_torsion_sm):
-    """
-    Test the compute_relative_energy method of the dataset.
+    """Test the compute_relative_energy method of the dataset.
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
 
     Raises
     ------
-        AssertionError: If the 'u_ref_relative' key is not found in any of the graph nodes.
+    AssertionError : If the 'u_ref_relative' key is not found in any of the graph nodes.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     ds.compute_relative_energy()
@@ -250,13 +290,21 @@ def test_split(mydata_gen2_torsion_sm, mydata_protein_torsion_sm, mydata_rna_div
 
     Parameters
     ----------
-        mydata_gen2_torsion_sm: `CustomGraphDataset` for gen2 torsion.
-        mydata_protein_torsion_sm: `CustomGraphDataset` for protein torsion.
-        mydata_rna_diverse_sm: `CustomGraphDataset` for diverse RNA.
+    mydata_gen2_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `gen2 torsion`.
+
+    mydata_protein_torsion_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `protein torsion`.
+    
+    mydata_rna_diverse_sm : espfit.utils.graphs.CustomGraphDataset
+        Small dataset from `rna diverse`
 
     Raises
     ------
-        AssertionError: If the total number of entries does not match.
+    AssertionError : If the total number of entries does not match.
+
+    Returns
+    -------
     """
     ds = mydata_gen2_torsion_sm
     ds += mydata_protein_torsion_sm
