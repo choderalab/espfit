@@ -114,17 +114,12 @@ def test_drop_and_merge_duplicates(mydata_gen2_torsion_sm, tmpdir):
 
     Returns
     -------
-    ds : CustomGraphDataset
-        The modified unique dataset without any duplicate molecules.
     """
     ds = mydata_gen2_torsion_sm
     temporary_directory = tmpdir.mkdir('misc')
     ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
     nconfs = [ g.nodes['g'].data['u_ref'].shape[1] for g in ds ]
     assert nconfs == [24, 13, 24, 24, 24, 72], 'Number of molecular conformers does not match'
-
-    # return dataset to test espaloma refitting
-    return ds
 
 
 def test_subtract_nonbonded_interactions(mydata_gen2_torsion_sm):
