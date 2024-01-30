@@ -255,10 +255,11 @@ class EspalomaModel(object):
         from pathlib import Path
 
         # change default device to GPU if available
+        # will this map all data onto GPU and cause memory error if the data is too large?
         # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
         if torch.cuda.is_available():
             _logger.info('GPU is available for training.')
-            torch.set_default_device('cuda')
+            #torch.set_default_device('cuda')
         else:
             _logger.info('GPU is not available for training.')
 
@@ -300,11 +301,16 @@ class EspalomaModel(object):
                     epoch = i + 1    # start from epoch 1 (not zero-indexing)
                     for g in ds_tr_loader:
                         optimizer.zero_grad()
-                        #g = g.to("cuda:0")   # TODO: Better way to handle this?
+                        
+                        # TODO: Better way to handle this?
+                        if torch.cuda.is_available():
+                            g = g.to("cuda:0")
+                        
                         g.nodes["n1"].data["xyz"].requires_grad = True 
                         loss = self.net(g)
                         loss.backward()
                         optimizer.step()
+                    
                     if epoch % checkpoint_frequency == 0:
                         # Note: returned loss is a joint loss of different units.
                         _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
