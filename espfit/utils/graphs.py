@@ -110,6 +110,9 @@ class CustomGraphDataset(GraphDataset):
         
         output_directory_path : str, default='.'
             Directory path to save the new dataset.
+
+        Returns
+        -------
         """
         import os
         import pandas as pd
@@ -191,6 +194,8 @@ class CustomGraphDataset(GraphDataset):
         subtract_vdw=True, subtract_ele=True:
             Fit both valence and nonbonded terms (THIS IS NOT SUPPORTED).
 
+        Returns
+        -------
         """
         new_graphs = []
         from espaloma.data.md import subtract_nonbonded_force
@@ -238,6 +243,9 @@ class CustomGraphDataset(GraphDataset):
         node_feature : str, default=None
             Node feature name that is referred to when filtering the conformers.
             Usually, this should be `u_ref` or `u_qm` which are stored under node type `g`.
+        
+        Returns
+        -------
         """
         if node_feature == None:
             raise Exception(f'Please specify the node feature name under node type `g`')
@@ -271,6 +279,9 @@ class CustomGraphDataset(GraphDataset):
         ----------        
         n_conformer_threshold : int, default=3
             The minimium number of conformers per entry.
+
+        Returns
+        -------
         """
         new_graphs = []
         for i, g in enumerate(self.graphs):
@@ -304,7 +315,10 @@ class CustomGraphDataset(GraphDataset):
         References
         ----------
         [1] https://github.com/choderalab/espaloma/espaloma/data/md.py
-        [2] https://github.com/choderalab/refit-espaloma/blob/main/openff-default/02-train/merge-data/script/calc_ff.py    
+        [2] https://github.com/choderalab/refit-espaloma/blob/main/openff-default/02-train/merge-data/script/calc_ff.py  
+
+        Returns
+        -------  
         """
         import torch
         import numpy as np
@@ -400,6 +414,9 @@ class CustomGraphDataset(GraphDataset):
         """Compute relative MM energy wiht the mean set to zero.
 
         Relative energy will be overwritten and stored in g.nodes['g'].data['u_ref_relative'].
+
+        Returns
+        -------
         """
 
         new_graphs = []
@@ -427,6 +444,9 @@ class CustomGraphDataset(GraphDataset):
         ----------
         n_confs : int, default=50
             Number of conformations per graph (molecule).
+
+        Returns
+        -------
         """
         _logger.info(f'Reshape graphs size')
         
@@ -491,6 +511,9 @@ class CustomGraphDataset(GraphDataset):
 
     def _remove_node_features(self):
         """Remove node features that are not necessarily during Espaloma training.
+
+        Returns
+        -------
         """
         import copy
         
@@ -563,6 +586,11 @@ class CustomGraphDataset(GraphDataset):
 
         List of available force fields are hard coded but any force fields that are callable from 
         `openmmforcefields.generators.SystemGenerator` are supported.
+
+        Returns
+        -------
+        ff_list : list
+            List of available force fields.
         """
         ff_list = [
             'gaff-1.81', 'gaff-2.11', 
