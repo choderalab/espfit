@@ -13,6 +13,10 @@ def set_logging_level(level):
     ----------
     level : int
         The logging level. For example, logging.INFO.
+
+    Returns
+    -------
+    None
     """
     logging.getLogger().setLevel(level)
 

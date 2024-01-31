@@ -113,6 +113,7 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
         import os
         import pandas as pd
@@ -121,34 +122,34 @@ class CustomGraphDataset(GraphDataset):
         smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
         _logger.info(f'Found {len(smiles)} molecules')
 
-        # unique entries
+        # Unique entries
         df = pd.DataFrame.from_dict({'smiles': smiles})
         unique_index = df.drop_duplicates(keep=False).index.to_list()
         unique_graphs = [self.graphs[_idx] for _idx in unique_index]
         _logger.info(f'Found {len(unique_index)} unique molecules')
 
-        # duplicated entries
-        index = df.duplicated(keep=False)   # mark all duplicate entries True
+        # Duplicated entries
+        index = df.duplicated(keep=False)   # Mark all duplicate entries True
         duplicated_index = df[index].index.to_list()
         _logger.info(f'Found {len(duplicated_index)} duplicated molecules')
         
-        # get unique smiles and assign new molecule name `e.g. mol0001`
+        # Get unique smiles and assign new molecule name `e.g. mol0001`
         duplicated_df = df.iloc[duplicated_index]
         duplicated_smiles = duplicated_df.smiles.unique().tolist()
         molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
         _logger.info(f'Found {len(molnames)} unique molecules within duplicate entries')
 
-        # merge duplicate entries into a new single graph
+        # Merge duplicate entries into a new single graph
         duplicated_graphs = []
         molnames_dict = {}
         for molname, duplicated_smile in zip(molnames, duplicated_smiles):
-            # map new molecule name with its unique smiles and dataframe indices
+            # Map new molecule name with its unique smiles and dataframe indices
             index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
             molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
-            # merge graphs
+            # Merge graphs
             g = self._merge_graphs([self.graphs[_idx] for _idx in index])
             duplicated_graphs.append(g)
-            # save graphs (optional)
+            # Save graphs (optional)
             if save_merged_dataset == True:
                 # Notes: Create a temporary directory, `_output_prefix`, to support pytest in test_utils_graphs.py.
                 # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
@@ -157,7 +158,7 @@ class CustomGraphDataset(GraphDataset):
                 output_prefix = os.path.join(_output_prefix, molname)
                 g.save(output_prefix)
 
-        # update in place
+        # Update in place
         new_graphs = unique_graphs + duplicated_graphs
         _logger.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
         self.graphs = new_graphs
@@ -196,6 +197,7 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
         new_graphs = []
         from espaloma.data.md import subtract_nonbonded_force
@@ -225,7 +227,7 @@ class CustomGraphDataset(GraphDataset):
                 raise Exception(f'Current option is not supported (subtract_vdw={subtract_vdw}, subtract_ele={subtract_ele})')
             new_graphs.append(g)
         
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
             
@@ -246,13 +248,14 @@ class CustomGraphDataset(GraphDataset):
         
         Returns
         -------
+        None
         """
         if node_feature == None:
             raise Exception(f'Please specify the node feature name under node type `g`')
 
         new_graphs = []
         for i, g in enumerate(self.graphs):
-            # get indices smaller than the relative energy threshold
+            # Get indices smaller than the relative energy threshold
             index = g.nodes['g'].data[node_feature] <= g.nodes['g'].data[node_feature].min() + relative_energy_threshold
             index = index.flatten()
             for key in g.nodes['g'].data.keys():
@@ -265,7 +268,7 @@ class CustomGraphDataset(GraphDataset):
                     g.nodes['n1'].data[key] = g.nodes['n1'].data[key][:, index, :]
             new_graphs.append(g)
         
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -282,6 +285,7 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
         new_graphs = []
         for i, g in enumerate(self.graphs):
@@ -289,7 +293,7 @@ class CustomGraphDataset(GraphDataset):
             if n_confs >= n_conformer_threshold:
                 new_graphs.append(g)
 
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -318,7 +322,8 @@ class CustomGraphDataset(GraphDataset):
         [2] https://github.com/choderalab/refit-espaloma/blob/main/openff-default/02-train/merge-data/script/calc_ff.py  
 
         Returns
-        -------  
+        -------
+        None
         """
         import torch
         import numpy as np
@@ -362,15 +367,15 @@ class CustomGraphDataset(GraphDataset):
                 
                 suffix = name
 
-                # parameterize topology
+                # Parameterize topology
                 topology = g.mol.to_topology().to_openmm()
-                # create openmm system
+                # Create openmm system
                 system = generator.create_system(topology)
-                # use langevin integrator, although it's not super useful here
+                # Use langevin integrator, although it's not super useful here
                 integrator = openmm.LangevinIntegrator(TEMPERATURE, COLLISION_RATE, STEP_SIZE)
-                # create simulation
+                # Create simulation
                 simulation = Simulation(topology=topology, system=system, integrator=integrator)
-                # get energy
+                # Get energy
                 us = []
                 us_prime = []
                 xs = (
@@ -405,7 +410,7 @@ class CustomGraphDataset(GraphDataset):
 
             new_graphs.append(g)
 
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -417,15 +422,15 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
-
         new_graphs = []
         for g in self.graphs:
             g.nodes['g'].data['u_ref_relative'] = g.nodes['g'].data['u_ref'].detach().clone()
             g.nodes['g'].data['u_ref_relative'] = (g.nodes['g'].data['u_ref_relative'] - g.nodes['g'].data['u_ref_relative'].mean(dim=-1, keepdims=True)).float()
             new_graphs.append(g)
 
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -447,6 +452,7 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
         _logger.info(f'Reshape graphs size')
         
@@ -454,7 +460,7 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
-        # remove node features that are not used during training
+        # Remove node features that are not used during training
         self._remove_node_features()
 
         new_graphs = []
@@ -504,7 +510,7 @@ class CustomGraphDataset(GraphDataset):
                     
                     new_graphs.append(_g)
 
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -514,6 +520,7 @@ class CustomGraphDataset(GraphDataset):
 
         Returns
         -------
+        None
         """
         import copy
         
@@ -528,7 +535,7 @@ class CustomGraphDataset(GraphDataset):
                     _g.nodes['n1'].data.pop(key)
             new_graphs.append(_g)
         
-        # update in place
+        # Update in place
         self.graphs = new_graphs
         del new_graphs
 
@@ -552,19 +559,19 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
-        # check if graphs are equivalent
+        # Check if graphs are equivalent
         for i in range(1, len(ds)):
-            # openff molecule
+            # Openff molecule
             assert ds[0].mol == ds[i].mol
-            # mapped isomeric smiles
+            # Mapped isomeric smiles
             assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-            # other node features
+            # Other node features
             for key in ["sum_q"]:
                 np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
             for key in ["q_ref", "idxs", "h0"]:
                 np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
 
-        # merge graphs
+        # Merge graphs
         g = copy.deepcopy(ds[0])
         for key in g.nodes['g'].data.keys():
             if key not in ["sum_q"]:

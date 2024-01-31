@@ -23,7 +23,7 @@ class EspalomaModel(object):
     Examples
     --------
     >>> from espfit.app.train import EspalomaModel
-    >>> filename = 'examples/config.toml'
+    >>> filename = 'espfit/data/config/config.toml'
     >>> # create espaloma network model from toml file
     >>> model = EspalomaModel.from_toml(filename)
     >>> # check espaloma network model
@@ -254,8 +254,8 @@ class EspalomaModel(object):
         import torch
         from pathlib import Path
 
-        # change default device to GPU if available
-        # will this map all data onto GPU and cause memory error if the data is too large?
+        # Change default device to GPU if available
+        # Will this map all data onto GPU and cause memory error if the data is too large?
         # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
         if torch.cuda.is_available():
             _logger.info('GPU is available for training.')
@@ -263,11 +263,11 @@ class EspalomaModel(object):
         else:
             _logger.info('GPU is not available for training.')
 
-        # check if training dataset is provided
+        # Check if training dataset is provided
         if self.dataset_train is None:
             raise ValueError('Training dataset is not provided.')
         
-        # espaloma settings for training
+        # Espaloma settings for training
         config = self.config['espaloma']['train']
         epochs = config.get('epochs', epochs)
         batch_size = config.get('batch_size', batch_size)
@@ -276,10 +276,10 @@ class EspalomaModel(object):
         output_prefix = Path.cwd()
         output_prefix = config.get('output_prefix', output_prefix)
 
-        # create output directory if not exists
+        # Create output directory if not exists
         os.makedirs(output_prefix, exist_ok=True)
 
-        # restart from checkpoint if exists
+        # Restart from checkpoint if exists
         restart_epoch = self._restart_checkpoint(output_prefix)
         if restart_epoch >= epochs:
             _logger.info(f'Already trained for {epochs} epochs.')
@@ -289,7 +289,7 @@ class EspalomaModel(object):
         else:
             _logger.info(f'Training from scratch for {epochs} epochs.')
 
-        # train
+        # Train
         # https://github.com/choderalab/espaloma/blob/main/espaloma/app/train.py#L33
         # https://github.com/choderalab/espaloma/blob/main/espaloma/data/dataset.py#L310            
         from espfit.utils.units import HARTEE_TO_KCALPERMOL
@@ -298,7 +298,7 @@ class EspalomaModel(object):
         if torch.cuda.is_available():
             with torch.autograd.set_detect_anomaly(True):
                 for i in range(restart_epoch, epochs):
-                    epoch = i + 1    # start from epoch 1 (not zero-indexing)
+                    epoch = i + 1    # Start from epoch 1 (not zero-indexing)
                     for g in ds_tr_loader:
                         optimizer.zero_grad()
                         

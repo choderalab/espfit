@@ -7,6 +7,11 @@ _logger = logging.getLogger(__name__)
 class ExpCoeff(torch.nn.Module):
     """A PyTorch module that applies the exponential function to the logarithmic coefficients of a graph's nodes.
 
+    Methods
+    -------
+    forward(g):
+        Apply the exponential function to the logarithmic coefficients of the 'n2' and 'n3' nodes in the graph.
+
     Reference
     ---------
     See section `D.1 Training and inference` in 
@@ -57,7 +62,6 @@ class GetLoss(torch.nn.Module):
 
         Parameters
         ----------
-
         weights : dict
             loss weights in dictionary
         """
@@ -66,7 +70,16 @@ class GetLoss(torch.nn.Module):
 
 
     def compute_energy_loss(self, g):
-        """Relative energy loss with mean offset"""
+        """Relative energy loss with mean offset.
+        
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        torch.Tensor
+        """
         return torch.nn.MSELoss()(
             g.nodes['g'].data['u'] - g.nodes['g'].data['u'].mean(dim=-1, keepdims=True),
             g.nodes['g'].data['u_ref_relative'],
@@ -74,7 +87,16 @@ class GetLoss(torch.nn.Module):
 
 
     def compute_force_loss(self, g):
-        """Force loss"""
+        """Force loss.
+        
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        torch.Tensor
+        """
         du_dx_hat = torch.autograd.grad(
             g.nodes['g'].data['u'].sum(),
             g.nodes['n1'].data['xyz'],
@@ -91,7 +113,16 @@ class GetLoss(torch.nn.Module):
     
 
     def compute_charge_loss(self, g):
-        """Charge loss"""
+        """Charge loss.
+        
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        torch.Tensor
+        """
         return torch.nn.MSELoss()(
             g.nodes['n1'].data['q'],
             g.nodes['n1'].data['q_ref'],
@@ -99,16 +130,44 @@ class GetLoss(torch.nn.Module):
 
 
     def compute_torsion_loss(self, g):
-        """Torsion loss computed as L2 regularization"""
+        """Torsion loss computed as L2 regularization.
+        
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        torch.Tensor
+        """
         return g.nodes['n4'].data['k'].pow(2).mean()
 
 
     def compute_improper_loss(self, g):
-        """Improper loss computed as L2 regularization"""
+        """Improper loss computed as L2 regularization.
+        
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        torch.Tensor
+        """
         return g.nodes['n4_improper'].data['k'].pow(2).mean()
 
 
     def forward(self, g):
+        """Compute joint loss.
+
+        Parameters
+        ----------
+        g : dgl.DGLGraph
+
+        Returns
+        -------
+        loss : torch.Tensor       
+        """
         loss_energy = self.compute_energy_loss(g) * self.weights['energy']
         loss_force = self.compute_force_loss(g) * self.weights['force']
 

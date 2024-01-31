@@ -21,7 +21,14 @@ class BaseSimulation(object):
 
     Methods
     -------
+    minimize(maxIterations=100):
+        Minimize solvated system.
     
+    run(checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, nsteps=250000, atom_indices=None):
+        Run standard MD simulation.
+
+    export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
+        Export serialized system XML file and solvated pdb file.
     """
     def __init__(self, output_prefix='examples/sampler'):
         self.output_prefix = output_prefix        
@@ -29,6 +36,15 @@ class BaseSimulation(object):
 
     def minimize(self, maxIterations=100):
         """Minimize solvated system.
+
+        Parameters
+        ----------
+        maxIterations : int, default=100
+            Maximum number of iterations to perform.
+
+        Returns
+        -------
+        None
         """
         _logger.info(f"Minimizing system...")
         self.simulation.minimizeEnergy(maxIterations)
@@ -50,6 +66,13 @@ class BaseSimulation(object):
 
         nsteps : int, default=250000 (10 ns)
             Number of steps to run the simulation.
+
+        atom_indices : list, default=None
+            List of atom indices to save. If None, save all atoms except water and ions.
+
+        Returns
+        -------
+        None
         """
         self.checkpoint_frequency = checkpoint_frequency
         self.logging_frequency = logging_frequency
@@ -84,7 +107,22 @@ class BaseSimulation(object):
 
         TODO
         ----
-        - Currently, the output filenames are hard-coded. Should output filenames be specified by users?
+        * Currently, the output filenames are hard-coded. Should output filenames be specified by users?
+
+        Parameters
+        ----------
+        exportSystem : bool, default=True
+            Whether to export system XML file.
+
+        exportState : bool, default=True
+            Whether to export state XML file.
+
+        exportIntegrator : bool, default=True
+            Whether to export integrator XML file.
+
+        Returns
+        -------
+        None
         """
         _logger.info(f"Serialize and export system")
 
@@ -175,62 +213,19 @@ class SetupSampler(BaseSimulation):
     >>> c.create_system(biopolymer_file='protein.pdb', ligand_file='ligand.sdf')
     >>> c.minimize()
     >>> c.run()
+
+    Notes
+    -----
+    For some reason, the following forcefield files fail to construct systems for test systems stored in `espfit/data/target-debug`:
+
+    ['amber14-all.xml', 'amber/phosaa14SB.xml']             : pl-multi: NG, pl-single: NG, RNA: NG
+    ['amber/protein.ff14SB.xml', 'amber/phosaa14SB.xml']    : pl-multi: NG, pl-single: NG, RNA: NG
+    ['amber14-all.xml']                                     : pl-multi: NG, pl-single: OK, RNA: OK
+    ['amber/protein.ff14SB.xml', 'amber/RNA.OL3.xml']       : pl-multi: NG, pl-single: OK, RNA: OK
     """
     def __init__(self, 
-                 small_molecule_forcefield='openff-2.1.0', 
-                 forcefield_files = ['amber14-all.xml'], 
-                 water_model='tip3p', 
-                 solvent_padding=9.0 * unit.angstroms, 
-                 ionic_strength=0.15 * unit.molar, 
-                 constraints=app.HBonds, 
-                 hmass=3.0 * unit.amu, 
-                 temperature=300.0 * unit.kelvin, 
-                 pressure=1.0 * unit.atmosphere, 
-                 pme_tol=2.5e-04, 
-                 nonbonded_method=app.PME, 
-                 barostat_period=50, 
-                 timestep=4 * unit.femtoseconds, 
-                 override_with_espaloma=True,
-                 ):
-        super(SetupSampler, self).__init__()
-        self.small_molecule_forcefield = small_molecule_forcefield
-        self.water_model = water_model
-        self.forcefield_files = self._update_forcefield_files(forcefield_files)
-        self.solvent_padding = solvent_padding
-        self.ionic_strength = ionic_strength
-        self.constraints = constraints
-        self.hmass = hmass
-        self.temperature = temperature
-        self.pressure = pressure
-        self.pme_tol = pme_tol
-        self.nonbonded_method = nonbonded_method
-        self.barostat_period = barostat_period
-        self.timestep = timestep
-        self.override_with_espaloma = override_with_espaloma
-
-    # Rest of the code...
-class SetupSampler(BaseSimulation):
-    """Create biopolymer-ligand system.
-
-    Use espaloma force field as default to self-consistently parameterize the biopolymer-ligand system.
-    Use Perses 0.10.1 default parameter settings to setup the system.
-
-    Methods
-    -------
-    create_system(biopolymer_file=None, ligand_file=None):
-    
-    
-    Examples
-    --------
-    >>> from espfit.app.sampler import SetupSampler
-    >>> c = SetupSampler()
-    >>> c.create_system(biopolymer_file='protein.pdb', ligand_file='ligand.sdf')
-    >>> c.minimize()
-    >>> c.run()
-    """
-    def __init__(self, 
-                 small_molecule_forcefield='openff-2.1.0', 
-                 forcefield_files = ['amber14-all.xml'], 
+                 small_molecule_forcefield='openff-2.1.0',                  
+                 forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'], # pl-multi: OK, pl-single: OK, RNA: OK
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
                  ionic_strength=0.15 * unit.molar, 
@@ -294,7 +289,7 @@ class SetupSampler(BaseSimulation):
             forcefield_files.append(['amber/opc_standard.xml'])
         else:
             raise NotImplementedError(f'Water model {self.water_model} is not supported.')
-        # flatten list
+        # Flatten list
         new_forcefield_files = []
         for f in forcefield_files:
             if isinstance(f, list):
@@ -337,7 +332,7 @@ class SetupSampler(BaseSimulation):
                 # TODO: is this necessary?
                 if biopolymer.positions.unit != unit.nanometers:
                     raise Warning(f"biopolymer positions unit is expected to be nanometers but got {biopolymer.positions.unit}")
-            # set topology and positions
+            # Set topology and positions
             if ligand_file is None:
                 complex_topology = biopolymer.topology
                 complex_positions = biopolymer.positions
@@ -350,39 +345,38 @@ class SetupSampler(BaseSimulation):
             mol = mols[0]
             mol.SetProp("_Name", "MOL")
             offmol = Molecule.from_rdkit(mol)   
-            #offmol = Molecule.from_file(ligand_file, allow_undefined_stereo=True)   # is this better?
+            #offmol = Molecule.from_file(ligand_file, allow_undefined_stereo=True)   # Is this better?
             ligand_positions = offmol.conformers[0]   # ligand.position is pint.util.Quantity            
             ligand_positions = ligand_positions.to_openmm()
             ligand_positions = ligand_positions.in_units_of(unit.nanometers)
             ligand_topology = offmol.to_topology().to_openmm()
-            # set topology and positions
+            # Set topology and positions
             if biopolymer_file is None:
                 complex_topology = ligand_topology
                 complex_positions = ligand_positions
         # Merge biopolymer and ligand
         if biopolymer_file is not None and ligand_file is not None:
             _logger.debug("Merge biopolymer-ligand topology")
-            # convert openmm topology to mdtraj topology
+            # Convert openmm topology to mdtraj topology
             biopolymer_md_topology = md.Topology.from_openmm(biopolymer.topology)
             ligand_md_topology = md.Topology.from_openmm(ligand_topology)
             
-            # merge topology
+            # Merge topology
             complex_md_topology = biopolymer_md_topology.join(ligand_md_topology)
             complex_topology = complex_md_topology.to_openmm()
             
-            # get number of atoms
+            # Get number of atoms
             n_atoms_total = complex_topology.getNumAtoms()
             n_atoms_biopolymer = biopolymer.topology.getNumAtoms()
             n_atoms_ligand = ligand_topology.getNumAtoms()
             assert n_atoms_total == n_atoms_biopolymer + n_atoms_ligand, "Number of atoms after merging the biopolymer and ligand topology does not match"
             _logger.debug(f"Total atoms: {n_atoms_total} (biopolymer: {n_atoms_biopolymer}, ligand: {n_atoms_ligand})")
             
-            # complex positons: do we need to ensure the units to be the same? or will it automatically convert to nanometers if the units are different?
-            # currently, ligand position units are converted to nanometers before combining the positions
+            # Complex positons: do we need to ensure the units to be the same? Or will it automatically convert to nanometers if the units are different?
+            # Currently, ligand position units are converted to nanometers before combining the positions
             complex_positions = unit.Quantity(np.zeros([n_atoms_total, 3]), unit=unit.nanometers)
             complex_positions[:n_atoms_biopolymer, :] = biopolymer.positions
             complex_positions[n_atoms_biopolymer:n_atoms_biopolymer+n_atoms_ligand, :] = ligand_positions
-
 
         # Initialize system generator
         forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : self.constraints, 'rigidWater': True, 'hydrogenMass' : self.hmass}
@@ -438,6 +432,7 @@ class SetupSampler(BaseSimulation):
         -------
         None
         """
+        import os
         import glob
         import mdtraj as md
         from openff.toolkit import Molecule
@@ -473,7 +468,8 @@ class SetupSampler(BaseSimulation):
                 resid = '1'
                 chain_counter += 1
                 new_residue = self._new_solvated_topology.addResidue(resname, new_chain, resid)
-            for i, residue in enumerate(chain.residues()):
+            #for i, residue in enumerate(chain.residues()):
+            for residue in chain.residues():
                 if residue.chain.index not in biopolymer_chain_indices:
                     new_residue = self._new_solvated_topology.addResidue(residue.name, new_chain, residue.id)
                 for atom in residue.atoms():
