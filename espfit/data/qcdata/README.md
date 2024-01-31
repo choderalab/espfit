@@ -6,7 +6,7 @@
     - `dgl1/`: Small dgl graph datasets converted from HDF5 downloaded from [Zenodo](https://zenodo.org/records/8148817) with precomputed AM1-BCC ELF10 partial charges using OpenEye Toolkits.
         - `protein-torsion-sm/`: 
             - Copied from `/home/takabak/data/exploring-rna/refit-espaloma/openff-default/01-create-dataset/TorsionDriveDataset/protein-torsion/data`
-    - `dgl2/`: Small dgl graph datasets with pre-computed baseline force field energies,forces, as well as the relative energies but without applying any high energy and conformer filtering. 
+    - `dgl2/`: Small dgl graph datasets with pre-computed baseline force field energies and forces, as well as nonbonded energies and forces subtracted from qm references, but without applying any high energy and conformer filtering. 
                These datasets are one step before the preprocessed dataset uploaded in [Zenodo](https://zenodo.org/records/8150601).
         - `protein-torsion-sm/`:  
             - Copied from `/home/takabak/data/exploring-rna/refit-espaloma/openff-default/02-train/merge-data/openff-2.0.0/protein-torsion`
