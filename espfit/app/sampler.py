@@ -444,7 +444,7 @@ class SetupSampler(BaseSimulation):
         chain_indices = [ chain.index for chain in self._solvated_topology.chains() ]
         #chain_indices = [ chain.index for chain in mdtop.chains ]
         #biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"biopolymer and chainid == {chain_index}").any() ]
-        biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"(water or resname NA or resname K or resname CL) and chainid == {chain_index}").any() ]
+        biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL) and chainid == {chain_index}").any() ]
         _logger.info(f"biopolymer chain indices: {biopolymer_chain_indices}")
 
         # Check conflicting residue names. Espaloma will use residue name "XX".
@@ -481,12 +481,14 @@ class SetupSampler(BaseSimulation):
             if bond[0] in new_atoms and bond[1] in new_atoms:
                 self._new_solvated_topology.addBond(new_atoms[bond[0]], new_atoms[bond[1]])
         
+        # TODO: create and save pdb files to temporary directory instead of current directory
         # Save the updated complex model as pdb
         complex_espaloma_filename = f"complex-solvated-espaloma.pdb"
         if not os.path.exists(complex_espaloma_filename):
             with open(complex_espaloma_filename, 'w') as outfile:
                 app.PDBFile.writeFile(self._new_solvated_topology, self._solvated_positions, outfile)
         
+        # TODO: create and save pdb files to temporary directory instead of current directory
         # Seperate biopolymers into indivdual pdb files according to chain ID.
         biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
         if not biopolymer_espaloma_filenames:
@@ -496,7 +498,9 @@ class SetupSampler(BaseSimulation):
                 t.atom_slice(indices).save_pdb(f"biopolymer-espaloma-{chain_index}.pdb")
             biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
         
-        # Load individual biopolymer structure into openff.toolkit.topology.Molecule
+        # Load individual biopolymer structure into openff.toolkit.Molecule
+        # Molecule.from_file() no longer supports pdb file with openff.toolkit > 0.11.0
+        # TODO: fix this so it supports openff.toolkit > 0.11.0
         biopolymer_molecules = [ Molecule.from_file(biopolymer_filename) for biopolymer_filename in biopolymer_espaloma_filenames ]
         
         # We already added small molecules to template generator when we first created ``self._system_generator``.
