@@ -3,11 +3,18 @@ Create MD system and perform MD simulation.
 
 Notes
 -----
-Use Interchange to create biopolymer-ligand system when it supports RNA systems. Currently (2024-01-09), OpenFF Toolkit identifies residues 
+* Use Interchange to create biopolymer-ligand system when it supports RNA systems. Currently (2024-01-09), OpenFF Toolkit identifies residues 
 by matching chemical substructures rather than by residue name, it currently only supports the 20 'canonical' amino acids.
+* Template keywords for EspalomaTemplateGenerator are hard coded to avoid unexpected change in default settings of EspalomaTemplateGenerator.
+template_generator_kwargs = {"reference_forcefield": "openff_unconstrained-2.0.0", "charge_method": "nn"}
+* The `self._system_generator` in #L437 is reconstructed to regenerate the system with espaloma to avoid system construction errors for some 
+stored testsystems (espfit/data/target/testsystems/nucleoside).
 
 TODO
 ----
+* Improve system construction with espaloma. Currently, the system construction with espaloma is not stable for some test systems and 
+requires work arounds.
+* Improve the way to handle multiple biopolymer chains for constructing systems with espaloma.
 """
 import openmm.app as app
 import openmm.unit as unit
@@ -89,14 +96,17 @@ class BaseSimulation(object):
             for r in res:
                 for a in r.atoms:
                     self.atom_indices.append(a.index)
-
+       
         # Define reporter
         import os
         from mdtraj.reporters import NetCDFReporter
         from openmm.app import CheckpointReporter, StateDataReporter
         self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_prefix, 'traj.nc'), self.netcdf_frequency, atomSubset=self.atom_indices))
         self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_prefix, 'checkpoint.chk'), self.checkpoint_frequency))
-        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, 'reporter.log'), self.logging_frequency, step=True, potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
+        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, 'reporter.log'), self.logging_frequency, step=True, 
+                                                           potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, 
+                                                           volume=True, density=True, speed=True))
+        
         # Run
         _logger.info(f"Run MD simulation for {self.nsteps} steps")
         self.simulation.step(self.nsteps)
@@ -128,6 +138,7 @@ class BaseSimulation(object):
 
         import os
         from openmm import XmlSerializer
+        
         state = self.simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True, getForces=True)
 
         # Save system
@@ -136,7 +147,7 @@ class BaseSimulation(object):
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(self.simulation.system)
                 wf.write(xml)
-
+        
         # Save and serialize the final state
         if exportState:
             outfile = os.path.join(self.output_prefix, "state.xml")
@@ -155,7 +166,7 @@ class BaseSimulation(object):
                         file=wf,
                         keepIds=True
                 )
-
+        
         # Save and serialize integrator
         if exportIntegrator:
             outfile = os.path.join(self.output_prefix, "integrator.xml")
@@ -216,16 +227,17 @@ class SetupSampler(BaseSimulation):
 
     Notes
     -----
-    For some reason, the following forcefield files fail to construct systems for test systems stored in `espfit/data/target-debug`:
+    For some reason, the following force field files fail to construct systems for test systems stored in `espfit/data/target/testsystems`:
 
-    ['amber14-all.xml', 'amber/phosaa14SB.xml']             : pl-multi: NG, pl-single: NG, RNA: NG
-    ['amber/protein.ff14SB.xml', 'amber/phosaa14SB.xml']    : pl-multi: NG, pl-single: NG, RNA: NG
-    ['amber14-all.xml']                                     : pl-multi: NG, pl-single: OK, RNA: OK
-    ['amber/protein.ff14SB.xml', 'amber/RNA.OL3.xml']       : pl-multi: NG, pl-single: OK, RNA: OK
+    ['amber14-all.xml', 'amber/phosaa14SB.xml']             : pl-multi (TPO): NG, pl-single: NG, RNA: NG
+    ['amber/protein.ff14SB.xml', 'amber/phosaa14SB.xml']    : pl-multi (TPO): NG, pl-single: NG, RNA: NG
+    ['amber14-all.xml']                                     : pl-multi (TPO): NG, pl-single: OK, RNA: OK
+    ['amber/protein.ff14SB.xml', 'amber/RNA.OL3.xml']       : pl-multi (TPO): NG, pl-single: OK, RNA: OK
     """
     def __init__(self, 
-                 small_molecule_forcefield='openff-2.1.0',                  
-                 forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'], # pl-multi: OK, pl-single: OK, RNA: OK
+                 #small_molecule_forcefield='openff-2.1.0',
+                 small_molecule_forcefield='/home/takabak/.espaloma/espaloma-0.3.2.pt',
+                 forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'],
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
                  ionic_strength=0.15 * unit.molar, 
@@ -300,12 +312,72 @@ class SetupSampler(BaseSimulation):
         return new_forcefield_files
 
 
+    def _load_biopolymer_file(self):
+        """Load biopolymer file."""
+        with open(self._biopolymer_file, 'r') as f:
+            self._biopolymer = app.PDBFile(f)  # biopolymer.positions is openmm.unit.quantity.Quantity
+            # TODO: is this necessary?
+            if self._biopolymer.positions.unit != unit.nanometers:
+                raise Warning(f"biopolymer positions unit is expected to be nanometers but got {self._biopolymer.positions.unit}")
+
+
+    def _load_ligand_file(self):
+        """Load ligand file."""
+        from rdkit import Chem
+        from openff.toolkit.topology import Molecule
+
+        suppl = Chem.SDMolSupplier(self._ligand_file)
+        mols = [ x for x in suppl ]
+        mol = mols[0]
+        #mol.SetProp("_Name", "MOL")   # For some reason, the ligand name is changed to UNK when simulation system is created.
+        self._ligand_offmol = Molecule.from_rdkit(mol)   
+        #self._ligand_offmol = Molecule.from_file(ligand_file, allow_undefined_stereo=True)   # Is this better?
+        self._ligand_positions = self._ligand_offmol.conformers[0]   # ligand.position is pint.util.Quantity            
+        self._ligand_positions = self._ligand_positions.to_openmm()
+        self._ligand_positions = self._ligand_positions.in_units_of(unit.nanometers)
+        self._ligand_topology = self._ligand_offmol.to_topology().to_openmm()
+        
+
+    def _get_complex(self):
+        """Merge biopolymer and ligand topology and position. Return complex topology and position."""
+        import numpy as np
+        import mdtraj as md
+
+        # Define complex topology and positions
+        if self._biopolymer_file is not None and self._ligand_file is None:
+            complex_topology = self._biopolymer.topology
+            complex_positions = self._biopolymer.positions
+        elif self._biopolymer_file is None and self._ligand_file is not None:
+            complex_topology = self._ligand_topology
+            complex_positions = self._ligand_positions
+        elif self._biopolymer_file is not None and self._ligand_file is not None:
+            _logger.debug("Merge biopolymer-ligand topology")
+            # Convert openmm topology to mdtraj topology
+            biopolymer_md_topology = md.Topology.from_openmm(self._biopolymer.topology)
+            ligand_md_topology = md.Topology.from_openmm(self._ligand_topology)
+            # Merge topology
+            complex_md_topology = biopolymer_md_topology.join(ligand_md_topology)
+            complex_topology = complex_md_topology.to_openmm()
+            # Get number of atoms
+            n_atoms_total = complex_topology.getNumAtoms()
+            n_atoms_biopolymer = self._biopolymer.topology.getNumAtoms()
+            n_atoms_ligand = self._ligand_topology.getNumAtoms()
+            assert n_atoms_total == n_atoms_biopolymer + n_atoms_ligand, "Number of atoms after merging the biopolymer and ligand topology does not match"
+            _logger.debug(f"Total atoms: {n_atoms_total} (biopolymer: {n_atoms_biopolymer}, ligand: {n_atoms_ligand})")
+            # Convert ligand position units to nanometers before combining the positions
+            # Note: Do we need to ensure the units to be the same? Or will it automatically convert to nanometers if the units are different?
+            complex_positions = unit.Quantity(np.zeros([n_atoms_total, 3]), unit=unit.nanometers)
+            complex_positions[:n_atoms_biopolymer, :] = self._biopolymer.positions
+            complex_positions[n_atoms_biopolymer:n_atoms_biopolymer+n_atoms_ligand, :] = self._ligand_positions
+       
+        return complex_topology, complex_positions
+    
+        
     def create_system(self, biopolymer_file=None, ligand_file=None):
-        """
-        Create biopolymer-ligand system and export serialized system XML file and solvated pdb file.
+        """Create biopolymer-ligand system and export serialized system XML file and solvated pdb file.
 
         Parameters
-        ---------
+        ----------
         ligand_file : str
             ligand sdf file. The first ligand entry will be used if multiple ligands are stored.
 
@@ -314,88 +386,54 @@ class SetupSampler(BaseSimulation):
         None
         """
         import os
-        import numpy as np
-        import mdtraj as md
-        from rdkit import Chem
         from openmmforcefields.generators import SystemGenerator
-        from openff.toolkit.topology import Molecule
         from openmm import MonteCarloBarostat
         from openmm import LangevinMiddleIntegrator
 
-        if biopolymer_file is None and ligand_file is None:
-            raise ValueError("At least one biopolymer (.pdb) or ligand (.sdf) file must be provided")
-        
-        # Load biopolymer (biopolymer, rna) pdb
-        if biopolymer_file is not None:
-            with open(biopolymer_file, 'r') as f:
-                biopolymer = app.PDBFile(f)  # biopolymer.positions is openmm.unit.quantity.Quantity
-                # TODO: is this necessary?
-                if biopolymer.positions.unit != unit.nanometers:
-                    raise Warning(f"biopolymer positions unit is expected to be nanometers but got {biopolymer.positions.unit}")
-            # Set topology and positions
-            if ligand_file is None:
-                complex_topology = biopolymer.topology
-                complex_positions = biopolymer.positions
-        # Load ligand
-        if ligand_file is not None:
-            ext = os.path.splitext(ligand_file)[-1].lower()
-            assert ext == '.sdf', f'Ligand file format must be SDF but got {ext}'
-            suppl = Chem.SDMolSupplier(ligand_file)
-            mols = [ x for x in suppl ]
-            mol = mols[0]
-            mol.SetProp("_Name", "MOL")
-            offmol = Molecule.from_rdkit(mol)   
-            #offmol = Molecule.from_file(ligand_file, allow_undefined_stereo=True)   # Is this better?
-            ligand_positions = offmol.conformers[0]   # ligand.position is pint.util.Quantity            
-            ligand_positions = ligand_positions.to_openmm()
-            ligand_positions = ligand_positions.in_units_of(unit.nanometers)
-            ligand_topology = offmol.to_topology().to_openmm()
-            # Set topology and positions
-            if biopolymer_file is None:
-                complex_topology = ligand_topology
-                complex_positions = ligand_positions
-        # Merge biopolymer and ligand
-        if biopolymer_file is not None and ligand_file is not None:
-            _logger.debug("Merge biopolymer-ligand topology")
-            # Convert openmm topology to mdtraj topology
-            biopolymer_md_topology = md.Topology.from_openmm(biopolymer.topology)
-            ligand_md_topology = md.Topology.from_openmm(ligand_topology)
-            
-            # Merge topology
-            complex_md_topology = biopolymer_md_topology.join(ligand_md_topology)
-            complex_topology = complex_md_topology.to_openmm()
-            
-            # Get number of atoms
-            n_atoms_total = complex_topology.getNumAtoms()
-            n_atoms_biopolymer = biopolymer.topology.getNumAtoms()
-            n_atoms_ligand = ligand_topology.getNumAtoms()
-            assert n_atoms_total == n_atoms_biopolymer + n_atoms_ligand, "Number of atoms after merging the biopolymer and ligand topology does not match"
-            _logger.debug(f"Total atoms: {n_atoms_total} (biopolymer: {n_atoms_biopolymer}, ligand: {n_atoms_ligand})")
-            
-            # Complex positons: do we need to ensure the units to be the same? Or will it automatically convert to nanometers if the units are different?
-            # Currently, ligand position units are converted to nanometers before combining the positions
-            complex_positions = unit.Quantity(np.zeros([n_atoms_total, 3]), unit=unit.nanometers)
-            complex_positions[:n_atoms_biopolymer, :] = biopolymer.positions
-            complex_positions[n_atoms_biopolymer:n_atoms_biopolymer+n_atoms_ligand, :] = ligand_positions
+        self._biopolymer_file = biopolymer_file
+        self._ligand_file = ligand_file
 
-        # Initialize system generator
+        # Load biopolymer and ligand files
+        if self._biopolymer_file is None and self._ligand_file is None:
+            raise ValueError("At least one biopolymer (.pdb) or ligand (.sdf) file must be provided")
+        if self._biopolymer_file is not None:
+            ext = os.path.splitext(self._biopolymer_file)[-1].lower()
+            assert ext == '.pdb', f'Biopolymer file format must be PDB but got {ext}'
+            self._load_biopolymer_file()
+        if self._ligand_file is not None:
+            ext = os.path.splitext(self._ligand_file)[-1].lower()
+            assert ext == '.sdf', f'Ligand file format must be SDF but got {ext}'
+            self._load_ligand_file()
+        
+        # Merge topology and position and get complex topology and position
+        self._complex_topology, self._complex_positions = self._get_complex()
+
+        # Initialize system generator.
+        _logger.debug("Initialize system generator")
         forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : self.constraints, 'rigidWater': True, 'hydrogenMass' : self.hmass}
         periodic_forcefield_kwargs = {'nonbondedMethod': self.nonbonded_method}
         barostat = MonteCarloBarostat(self.pressure, self.temperature, self.barostat_period)
-        if ligand_file is not None:
-            _logger.debug("Initialize system generator for biopolymer-ligand or ligand only system")
-            self._system_generator = SystemGenerator(
-                forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
-                small_molecule_forcefield=self.small_molecule_forcefield, molecules=offmol, cache=None)
-        else:
-            _logger.debug("Initialize system generator for biopolymer system")
-            self._system_generator = SystemGenerator(
-                forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
-                cache=None)
 
+        # SystemGenerator will automatically load the TemplateGenerator based on the given `small_molecule_forcefield`.
+        # Available TemplateGenerator: [ GAFFTemplateGenerator, SMIRNOFFTemplateGenerator, EspalomaTemplateGenerator ]
+        # Template generator kwargs is only valid for EspalomaTemplateGenerator and will be ignore by GAFFTemplateGenerator and SMIRNOFFTemplateGenerator.
+        template_generator_kwargs = None
+        if "espaloma" in self.small_molecule_forcefield:
+            # Hard coded for now. We will use the default settings for EspalomaTemplateGenerator.
+            template_generator_kwargs = {"reference_forcefield": "openff_unconstrained-2.0.0", "charge_method": "nn"}
+        
+        self._system_generator = SystemGenerator(forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, 
+                                                 periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
+                                                 small_molecule_forcefield=self.small_molecule_forcefield, cache=None, 
+                                                 template_generator_kwargs=template_generator_kwargs)
+        
+        if ligand_file is not None:
+            _logger.info("Add molecules to system generator")
+            self._system_generator.template_generator.add_molecules(self._ligand_offmol)
+            
         # Solvate system
         _logger.info("Solvating system...")
-        modeller = app.Modeller(complex_topology, complex_positions)
+        modeller = app.Modeller(self._complex_topology, self._complex_positions)
         modeller.addSolvent(self._system_generator.forcefield, model=self.water_model, padding=self.solvent_padding, ionicStrength=self.ionic_strength)
         
         # Create system
@@ -404,8 +442,31 @@ class SetupSampler(BaseSimulation):
         self._solvated_system = self._system_generator.create_system(self._solvated_topology)
 
         # Regenerate system if espaloma is used
-        if "espaloma" in self.small_molecule_forcefield and self.override_with_espaloma == True:
-            _logger.info("Regenerate system with espaloma. This will overwride the original parameters with espaloma.")
+        if "espaloma" in self.small_molecule_forcefield and self.override_with_espaloma == True:            
+            #
+            # Note: We will delete the original `self._system_generator` and create a new one to regenerate the system with espaloma.
+            #
+            # The same `self._system_generator` should be able to regenerate the system with espaloma but it failed for the RNA test system 
+            # (espfit/data/target/testsystems/nucleoside/pdbfixer_min.pdb).
+            # No explicit error message was given. It failed to show the following logging information:
+            #
+            # _logger.info(f'Requested to generate parameters for residue {residue}')
+            # https://github.com/openmm/openmmforcefields/blob/main/openmmforcefields/generators/template_generators.py#L285
+            #
+            # However, it works for protein test systems (espfit/data/target/testsystems/protein-ligand/target.pdb).
+            #
+            # As a workaround, we will delete the original `self._system_generator` and create a new one to regenerate the system with espaloma.
+            # Only water and ion forcefield files will be used to regenerate the system. Solute molecules will be parametrized with espaloma.
+            # 
+            _logger.info("Regenerate system with espaloma.")
+
+            del self._system_generator
+            # Get water and ion forcefield files
+            self.forcefield_files = self._update_forcefield_files(forcefield_files=[])
+            self._system_generator = SystemGenerator(
+                forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
+                small_molecule_forcefield=self.small_molecule_forcefield, cache=None, template_generator_kwargs=template_generator_kwargs)
+            
             self._new_solvated_system, self._new_solvated_topology = self._regenerate_espaloma_system()
         else:
             self._new_solvated_system = self._solvated_system
@@ -422,7 +483,8 @@ class SetupSampler(BaseSimulation):
 
         Reference
         ---------
-        https://github.com/kntkb/perses/blob/support-protein-espaloma/perses/app/relative_setup.py#L883
+        - https://github.com/kntkb/perses/blob/support-protein-espaloma/perses/app/relative_setup.py#L883
+        - https://github.com/openforcefield/proteinbenchmark/blob/main/proteinbenchmark/system_setup.py#L651
 
         Parameters
         ----------
@@ -432,8 +494,6 @@ class SetupSampler(BaseSimulation):
         -------
         None
         """
-        import os
-        import glob
         import mdtraj as md
         from openff.toolkit import Molecule
 
@@ -442,71 +502,74 @@ class SetupSampler(BaseSimulation):
         # Check biopolymer chains
         mdtop = md.Topology.from_openmm(self._solvated_topology)
         chain_indices = [ chain.index for chain in self._solvated_topology.chains() ]
-        #chain_indices = [ chain.index for chain in mdtop.chains ]
-        #biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"biopolymer and chainid == {chain_index}").any() ]
-        biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL) and chainid == {chain_index}").any() ]
-        _logger.info(f"biopolymer chain indices: {biopolymer_chain_indices}")
+        biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL or resname UNK) and chainid == {chain_index}").any() ]
+        _logger.info(f"Biopolymer chain indices: {biopolymer_chain_indices}")
 
-        # Check conflicting residue names. Espaloma will use residue name "XX".
+        # Get OpenMM topology of solute with one residue per molecule. 
+        # Espaloma will use residue name "XX". Check conflicting residue names.
         conflict_resnames = [ residue.name for residue in mdtop.residues if residue.name.startswith("XX") ]
         if conflict_resnames:
             raise Exception('Found conflict residue name in biopolymer.')
 
-        # Initialize
+        # Initilize espaloma topology
         self._new_solvated_topology = app.Topology()
         self._new_solvated_topology.setPeriodicBoxVectors(self._solvated_topology.getPeriodicBoxVectors())
         new_atoms = {}
 
         # Regenerate biopolymer topology
-        chain_counter = 0
+        chain_index = 0
         _logger.info(f"Regenerating biopolymer topology...")
         for chain in self._solvated_topology.chains():
             new_chain = self._new_solvated_topology.addChain(chain.id)
             # Convert biopolymer into a single residue
             if chain.index in biopolymer_chain_indices:
-                resname = f'XX{chain_counter:01d}'
+                resname = f'XX{chain_index:01d}'
                 resid = '1'
-                chain_counter += 1
+                chain_index += 1
                 new_residue = self._new_solvated_topology.addResidue(resname, new_chain, resid)
-            #for i, residue in enumerate(chain.residues()):
             for residue in chain.residues():
                 if residue.chain.index not in biopolymer_chain_indices:
                     new_residue = self._new_solvated_topology.addResidue(residue.name, new_chain, residue.id)
                 for atom in residue.atoms():
                     new_atom = self._new_solvated_topology.addAtom(atom.name, atom.element, new_residue, atom.id)
                     new_atoms[atom] = new_atom
-
         # Regenerate bond information
         for bond in self._solvated_topology.bonds():
             if bond[0] in new_atoms and bond[1] in new_atoms:
                 self._new_solvated_topology.addBond(new_atoms[bond[0]], new_atoms[bond[1]])
         
-        # TODO: create and save pdb files to temporary directory instead of current directory
-        # Save the updated complex model as pdb
-        complex_espaloma_filename = f"complex-solvated-espaloma.pdb"
-        if not os.path.exists(complex_espaloma_filename):
-            with open(complex_espaloma_filename, 'w') as outfile:
-                app.PDBFile.writeFile(self._new_solvated_topology, self._solvated_positions, outfile)
-        
-        # TODO: create and save pdb files to temporary directory instead of current directory
-        # Seperate biopolymers into indivdual pdb files according to chain ID.
-        biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
-        if not biopolymer_espaloma_filenames:
-            for chain_index in biopolymer_chain_indices:
-                t = md.load_pdb(complex_espaloma_filename)
-                indices = t.topology.select(f"chainid == {chain_index}")
-                t.atom_slice(indices).save_pdb(f"biopolymer-espaloma-{chain_index}.pdb")
+        # Add molecules to template generator (EspalomaTemplateGenerator).
+        if self._ligand_file is not None:
+            self._system_generator.template_generator.add_molecules(self._ligand_offmol)
+        if self._biopolymer_file is not None and len(biopolymer_chain_indices) == 1:
+            openff_molecule = Molecule.from_file(self._biopolymer_file)
+            openff_topology = openff_molecule.to_topology()
+            self._system_generator.template_generator.add_molecules(openff_topology.unique_molecules)
+        elif self._biopolymer_file is not None and len(biopolymer_chain_indices) > 1:
+            # Note: This is a temporary workaround to support multiple biopolymer chains.
+            # `template_generator.add_molecules(openff_topology.unique_molecules)` cannot handle 
+            # multiple biopolymer chains for some reason.
+            
+            #raise NotImplementedError("Multiple biopolymer chains are not supported yet.")
+            
+            import os
+            import glob
+            # Save complexed model and seperate biopolymers into indivdual pdb files according to chain ID
+            complex_espaloma_filename = f"complex-solvated-espaloma.pdb"
+            if not os.path.exists(complex_espaloma_filename):
+                with open(complex_espaloma_filename, 'w') as outfile:
+                    app.PDBFile.writeFile(self._new_solvated_topology, self._solvated_positions, outfile)
             biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
-        
-        # Load individual biopolymer structure into openff.toolkit.Molecule
-        # Molecule.from_file() no longer supports pdb file with openff.toolkit > 0.11.0
-        # TODO: fix this so it supports openff.toolkit > 0.11.0
-        biopolymer_molecules = [ Molecule.from_file(biopolymer_filename) for biopolymer_filename in biopolymer_espaloma_filenames ]
-        
-        # We already added small molecules to template generator when we first created ``self._system_generator``.
-        # So we only need to add biopolymer molecule to template generator (EspalomaTemplateGenerator).
-        self._system_generator.template_generator.add_molecules(biopolymer_molecules)
-        # Regenerate system with system generator.
+            if not biopolymer_espaloma_filenames:
+                for chain_index in biopolymer_chain_indices:
+                    t = md.load_pdb(complex_espaloma_filename)
+                    indices = t.topology.select(f"chainid == {chain_index}")
+                    t.atom_slice(indices).save_pdb(f"biopolymer-espaloma-{chain_index}.pdb")
+                biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
+            biopolymer_molecules = [ Molecule.from_file(biopolymer_filename) for biopolymer_filename in biopolymer_espaloma_filenames ]
+            self._system_generator.template_generator.add_molecules(biopolymer_molecules)
+
+        # Regenerate system with system generator
         self._new_solvated_system = self._system_generator.create_system(self._new_solvated_topology)
 
         return self._new_solvated_system, self._new_solvated_topology
@@ -522,3 +585,4 @@ class SetupSampler(BaseSimulation):
         """Load serialized system XML file and solvated pdb file.
         """
         raise NotImplementedError
+    
