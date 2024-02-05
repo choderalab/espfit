@@ -16,6 +16,7 @@ TODO
 requires work arounds.
 * Improve the way to handle multiple biopolymer chains for constructing systems with espaloma.
 """
+import os
 import openmm.app as app
 import openmm.unit as unit
 import logging
@@ -37,8 +38,9 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, output_prefix='examples/sampler'):
-        self.output_prefix = output_prefix        
+    def __init__(self, output_prefix='examples/sampler', restart_prefix='examples/sampler'):
+        self.output_prefix = output_prefix
+        self.restrat_prefix = restart_prefix
 
 
     def minimize(self, maxIterations=100):
@@ -92,18 +94,23 @@ class BaseSimulation(object):
         if self.atom_indices is None:
             self.atom_indices = []
             mdtop = md.Topology.from_openmm(self.simulation.topology)
-            res = [ r for r in mdtop.residues if r.name not in ("HOH", "NA", "CL", "K") ]
+            res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
             for r in res:
                 for a in r.atoms:
                     self.atom_indices.append(a.index)
        
         # Define reporter
-        import os
         from mdtraj.reporters import NetCDFReporter
         from openmm.app import CheckpointReporter, StateDataReporter
-        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_prefix, 'traj.nc'), self.netcdf_frequency, atomSubset=self.atom_indices))
-        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_prefix, 'checkpoint.chk'), self.checkpoint_frequency))
-        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, 'reporter.log'), self.logging_frequency, step=True, 
+
+        self._check_file_exists("traj.nc")
+        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_prefix, f"traj.nc"), self.netcdf_frequency, atomSubset=self.atom_indices))
+        
+        self._check_file_exists("checkpoint.chk")
+        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_prefix, f"checkpoint.chk"), self.checkpoint_frequency))
+        
+        self._check_file_exists("reporter.log")
+        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, f"reporter.log"), self.logging_frequency, step=True, 
                                                            potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, 
                                                            volume=True, density=True, speed=True))
         
@@ -134,28 +141,32 @@ class BaseSimulation(object):
         -------
         None
         """
+        from openmm import XmlSerializer
         _logger.info(f"Serialize and export system")
 
-        import os
-        from openmm import XmlSerializer
-        
+        # Create output directory if not exists
+        os.makedirs(self.output_prefix, exist_ok=True)
         state = self.simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True, getForces=True)
 
         # Save system
         if exportSystem:
-            outfile = os.path.join(self.output_prefix, "system.xml")
+            self._check_file_exists("system.xml")
+            outfile = os.path.join(self.output_prefix, f"system.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(self.simulation.system)
                 wf.write(xml)
         
         # Save and serialize the final state
         if exportState:
-            outfile = os.path.join(self.output_prefix, "state.xml")
+            self._check_file_exists("state.xml")            
+            outfile = os.path.join(self.output_prefix, f"state.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(state)
                 wf.write(xml)
-            # Save the final state as a PDB
-            outfile = os.path.join(self.output_prefix, "state.pdb")
+
+            # Save as pdb file
+            self._check_file_exists("state.pdb")
+            outfile = os.path.join(self.output_prefix, f"state.pdb")
             with open(f"{outfile}", "w") as wf:
                 app.PDBFile.writeFile(
                     self.simulation.topology,
@@ -169,10 +180,37 @@ class BaseSimulation(object):
         
         # Save and serialize integrator
         if exportIntegrator:
-            outfile = os.path.join(self.output_prefix, "integrator.xml")
+            self._check_file_exists("integrator.xml")
+            outfile = os.path.join(self.output_prefix, f"integrator.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(self.simulation.integrator)
                 wf.write(xml)
+
+
+    def _check_file_exists(self, filename):
+        """Renumber the given filename if it already exists in the output directory.
+
+        Parameters
+        ----------
+        filename : str
+            The name of the file to be renumbered.
+
+        Returns
+        -------
+        None
+        """
+        import glob
+        import shutil
+
+        if os.path.exists(os.path.join(self.output_prefix, filename)):
+            basename, extension = os.path.splitext(filename)
+            index = len(glob.glob(os.path.join(self.output_prefix, f"{basename}*{extension}")))
+            
+            _logger.info(f"File {filename} already exists. Rename to {basename}{index}{extension}.")
+            shutil.copy(
+                os.path.join(self.output_prefix, filename),
+                os.path.join(self.output_prefix, f"{basename}{index}{extension}")
+            )
 
 
 class SetupSampler(BaseSimulation):
@@ -385,7 +423,6 @@ class SetupSampler(BaseSimulation):
         -------
         None
         """
-        import os
         from openmmforcefields.generators import SystemGenerator
         from openmm import MonteCarloBarostat
         from openmm import LangevinMiddleIntegrator
@@ -422,6 +459,7 @@ class SetupSampler(BaseSimulation):
             # Hard coded for now. We will use the default settings for EspalomaTemplateGenerator.
             template_generator_kwargs = {"reference_forcefield": "openff_unconstrained-2.0.0", "charge_method": "nn"}
         
+        # TODO: How can I set the ligand residue name to an arbitrary name?
         self._system_generator = SystemGenerator(forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, 
                                                  periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
                                                  small_molecule_forcefield=self.small_molecule_forcefield, cache=None, 
@@ -435,11 +473,11 @@ class SetupSampler(BaseSimulation):
         _logger.info("Solvating system...")
         modeller = app.Modeller(self._complex_topology, self._complex_positions)
         modeller.addSolvent(self._system_generator.forcefield, model=self.water_model, padding=self.solvent_padding, ionicStrength=self.ionic_strength)
-        
+
         # Create system
-        self._solvated_topology = modeller.getTopology()
-        self._solvated_positions = modeller.getPositions()
-        self._solvated_system = self._system_generator.create_system(self._solvated_topology)
+        self.modeller_solvated_topology = modeller.getTopology()
+        self.modeller_solvated_positions = modeller.getPositions()
+        self.modeller_solvated_system = self._system_generator.create_system(self.modeller_solvated_topology)
 
         # Regenerate system if espaloma is used
         if "espaloma" in self.small_molecule_forcefield and self.override_with_espaloma == True:            
@@ -460,22 +498,23 @@ class SetupSampler(BaseSimulation):
             # 
             _logger.info("Regenerate system with espaloma.")
 
+            # Re-create system generator
             del self._system_generator
-            # Get water and ion forcefield files
-            self.forcefield_files = self._update_forcefield_files(forcefield_files=[])
+            self.forcefield_files = self._update_forcefield_files(forcefield_files=[])  # Get water and ion forcefield files
             self._system_generator = SystemGenerator(
                 forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
                 small_molecule_forcefield=self.small_molecule_forcefield, cache=None, template_generator_kwargs=template_generator_kwargs)
             
-            self._new_solvated_system, self._new_solvated_topology = self._regenerate_espaloma_system()
+            # Regenerate system with espaloma
+            self.new_solvated_system, self.new_solvated_topology = self._regenerate_espaloma_system()
         else:
-            self._new_solvated_system = self._solvated_system
-            self._new_solvated_topology = self._solvated_topology
+            self.new_solvated_system = self.modeller_solvated_system
+            self.new_solvated_topology = self.modeller_solvated_topology
 
         # Create simulation
         self.integrator = LangevinMiddleIntegrator(self.temperature, 1/unit.picosecond, self.timestep)
-        self.simulation = app.Simulation(self._new_solvated_topology, self._new_solvated_system, self.integrator)
-        self.simulation.context.setPositions(self._solvated_positions)
+        self.simulation = app.Simulation(self.new_solvated_topology, self.new_solvated_system, self.integrator)
+        self.simulation.context.setPositions(self.modeller_solvated_positions)
 
 
     def _regenerate_espaloma_system(self):
@@ -500,8 +539,8 @@ class SetupSampler(BaseSimulation):
         _logger.info("Regenerate system with espaloma")
 
         # Check biopolymer chains
-        mdtop = md.Topology.from_openmm(self._solvated_topology)
-        chain_indices = [ chain.index for chain in self._solvated_topology.chains() ]
+        mdtop = md.Topology.from_openmm(self.modeller_solvated_topology)
+        chain_indices = [ chain.index for chain in self.modeller_solvated_topology.chains() ]
         biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL or resname UNK) and chainid == {chain_index}").any() ]
         _logger.info(f"Biopolymer chain indices: {biopolymer_chain_indices}")
 
@@ -512,31 +551,32 @@ class SetupSampler(BaseSimulation):
             raise Exception('Found conflict residue name in biopolymer.')
 
         # Initilize espaloma topology
-        self._new_solvated_topology = app.Topology()
-        self._new_solvated_topology.setPeriodicBoxVectors(self._solvated_topology.getPeriodicBoxVectors())
+        # TODO: From software engineering point of view, should this be `self.new_solvated_topology` or `new_solvated_topology`?
+        self.new_solvated_topology = app.Topology()
+        self.new_solvated_topology.setPeriodicBoxVectors(self.modeller_solvated_topology.getPeriodicBoxVectors())
         new_atoms = {}
 
         # Regenerate biopolymer topology
         chain_index = 0
         _logger.info(f"Regenerating biopolymer topology...")
-        for chain in self._solvated_topology.chains():
-            new_chain = self._new_solvated_topology.addChain(chain.id)
+        for chain in self.modeller_solvated_topology.chains():
+            new_chain = self.new_solvated_topology.addChain(chain.id)
             # Convert biopolymer into a single residue
             if chain.index in biopolymer_chain_indices:
                 resname = f'XX{chain_index:01d}'
                 resid = '1'
                 chain_index += 1
-                new_residue = self._new_solvated_topology.addResidue(resname, new_chain, resid)
+                new_residue = self.new_solvated_topology.addResidue(resname, new_chain, resid)
             for residue in chain.residues():
                 if residue.chain.index not in biopolymer_chain_indices:
-                    new_residue = self._new_solvated_topology.addResidue(residue.name, new_chain, residue.id)
+                    new_residue = self.new_solvated_topology.addResidue(residue.name, new_chain, residue.id)
                 for atom in residue.atoms():
-                    new_atom = self._new_solvated_topology.addAtom(atom.name, atom.element, new_residue, atom.id)
+                    new_atom = self.new_solvated_topology.addAtom(atom.name, atom.element, new_residue, atom.id)
                     new_atoms[atom] = new_atom
         # Regenerate bond information
-        for bond in self._solvated_topology.bonds():
+        for bond in self.modeller_solvated_topology.bonds():
             if bond[0] in new_atoms and bond[1] in new_atoms:
-                self._new_solvated_topology.addBond(new_atoms[bond[0]], new_atoms[bond[1]])
+                self.new_solvated_topology.addBond(new_atoms[bond[0]], new_atoms[bond[1]])
         
         # Add molecules to template generator (EspalomaTemplateGenerator).
         if self._ligand_file is not None:
@@ -549,40 +589,102 @@ class SetupSampler(BaseSimulation):
             # Note: This is a temporary workaround to support multiple biopolymer chains.
             # `template_generator.add_molecules(openff_topology.unique_molecules)` cannot handle 
             # multiple biopolymer chains for some reason.
-            
-            #raise NotImplementedError("Multiple biopolymer chains are not supported yet.")
-            
-            import os
+                        
             import glob
             # Save complexed model and seperate biopolymers into indivdual pdb files according to chain ID
-            complex_espaloma_filename = f"complex-solvated-espaloma.pdb"
+            complex_espaloma_filename = os.path.join(self.output_prefix, "complex_solvated_espaloma.pdb")
             if not os.path.exists(complex_espaloma_filename):
                 with open(complex_espaloma_filename, 'w') as outfile:
-                    app.PDBFile.writeFile(self._new_solvated_topology, self._solvated_positions, outfile)
-            biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
+                    app.PDBFile.writeFile(self.new_solvated_topology, self.modeller_solvated_positions, outfile)
             if not biopolymer_espaloma_filenames:
                 for chain_index in biopolymer_chain_indices:
                     t = md.load_pdb(complex_espaloma_filename)
                     indices = t.topology.select(f"chainid == {chain_index}")
-                    t.atom_slice(indices).save_pdb(f"biopolymer-espaloma-{chain_index}.pdb")
-                biopolymer_espaloma_filenames = glob.glob("biopolymer-espaloma-*.pdb")
+                    t.atom_slice(indices).save_pdb(os.path.join(self.output_prefix, f"biopolymer_espaloma_{chain_index}.pdb"))
+                biopolymer_espaloma_filenames = glob.glob(self.output_prefix + "/biopolymer_espaloma_*.pdb")
             biopolymer_molecules = [ Molecule.from_file(biopolymer_filename) for biopolymer_filename in biopolymer_espaloma_filenames ]
             self._system_generator.template_generator.add_molecules(biopolymer_molecules)
 
         # Regenerate system with system generator
-        self._new_solvated_system = self._system_generator.create_system(self._new_solvated_topology)
+        self.new_solvated_system = self._system_generator.create_system(self.new_solvated_topology)
+        self.new_solvated_topology = self._update_espaloma_topology()
 
-        return self._new_solvated_system, self._new_solvated_topology
+        return self.new_solvated_system, self.new_solvated_topology
 
 
-    def _update_topology(self):
-        """Update topology to reflect the new system.
+    def _update_espaloma_topology(self):
+        """Update espaloma topology to reflect the original residue names.
+
+        This method updates the topology to reflect the changes made to the system.
+        It converts the residue names of the solute molecules parameterized with espaloma
+        to their original names.
+
+        Returns
+        -------
+            app.Topology : The updated topology reflecting the new system.
         """
-        pass
+        _logger.info("Update residue names in espaloma topology.")
+        
+        # Get original residue names.
+        atom_name_lookup = []
+        for residue in self.modeller_solvated_topology.residues():
+            # Assume that solute molecules parameterized with espaloma comes before water molecules.
+            if residue.name == 'HOH': break
+            a = [ {"name": atom.name, "index": atom.index, "resname": atom.residue.name, "resid": atom.residue.id } for atom in residue.atoms() ][0]
+            atom_name_lookup.append(a)
+
+        # Create new topology and convert residue names to its original names.
+        new_topology = app.Topology()
+        new_topology.setPeriodicBoxVectors(self.modeller_solvated_topology.getPeriodicBoxVectors())
+        new_atoms = {}
+
+        i = 0
+        for chain in self.new_solvated_topology.chains():    
+            new_chain = new_topology.addChain(chain.id)
+            for residue in chain.residues():
+                # Covert all residues parameterized with espaloma to its original residue names.
+                if residue.name.startswith('XX'):
+                    for atom in residue.atoms():
+                        try:
+                            if atom_name_lookup[i]['name'] == atom.name and atom_name_lookup[i]['index'] == atom.index:
+                                resname = atom_name_lookup[i]['resname']
+                                resid = atom_name_lookup[i]['resid']
+                                newResidue = new_topology.addResidue(resname, new_chain, resid, residue.insertionCode)
+                                i += 1
+                        except:
+                            pass
+                        new_atom = new_topology.addAtom(atom.name, atom.element, newResidue, atom.id)
+                        new_atoms[atom] = new_atom
+                else:
+                    # Just copy the residue over.
+                    newResidue = new_topology.addResidue(residue.name, new_chain, residue.id, residue.insertionCode)
+                    for atom in residue.atoms():
+                        new_atom = new_topology.addAtom(atom.name, atom.element, newResidue, atom.id)
+                        new_atoms[atom] = new_atom     
+        for bond in self.new_solvated_topology.bonds():
+            if bond[0] in new_atoms and bond[1] in new_atoms:
+                new_topology.addBond(new_atoms[bond[0]], new_atoms[bond[1]])
+
+        return new_topology
 
 
-    def load_from_xml(cls):
+    def from_xml(self):
         """Load serialized system XML file and solvated pdb file.
         """
-        raise NotImplementedError
+    
+        from openmm import XmlSerializer
+
+        # Deserialize system file and load system
+        with open(os.path.join(self.restart_prefix, 'system.xml'), 'r') as f:
+            self.new_solvated_system = XmlSerializer.deserialize(f.read())
+
+        # Deserialize integrator file and load integrator
+        with open(os.path.join(self.restart_prefix, 'integrator.xml'), 'r') as f:
+            self.integrator = XmlSerializer.deserialize(f.read())
+
+        # Set up simulation
+        self.simulation = app.Simulation(self.new_solvated_system.topology, self.new_solvated_system, self.integrator)
+        with open(os.path.join(self.restart_prefix, 'state.xml'), 'r') as f:
+            state = XmlSerializer.deserialize(f.read())
+        self.simulation.context.setState(state)
     
