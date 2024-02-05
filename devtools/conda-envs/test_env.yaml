@@ -1,6 +1,7 @@
 name: espfit
 channels:
   - conda-forge
+  - openeye
 dependencies:
   - espaloma=0.3.2
   - pdbfixer
@@ -8,4 +9,5 @@ dependencies:
   - certifi
   - openssl
   - pytest
+  - openeye-toolkits
 prefix: /lila/home/takabak/mambaforge/envs/espfit
