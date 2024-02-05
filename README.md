@@ -15,14 +15,14 @@ Infrastruture to train espaloma with experimental observables
 >pip install git+https://github.com/kntkb/openff-toolkit.git@7e9d0225782ef723083407a1cbf1f4f70631f934  
 >#install openeye-toolkit  
 >mamba install openeye-toolkits -c openeye  
->#uninstall openmmforcefields if < 0.12.0
->conda uninstall --force openmmforcefields
->#use pip instead of mamba to avoid dependency issues with ambertools and python
+>#uninstall openmmforcefields if < 0.12.0  
+>conda uninstall --force openmmforcefields  
+>#use pip instead of mamba to avoid dependency issues with ambertools and python  
 >pip install git+https://github.com/openmm/openmmforcefields@0.12.0
 
 ### Quick Usage
 
-### Change logging
+#### Change logging
 ```python
 # load dgl graph data
 from espfit.utils import logging
