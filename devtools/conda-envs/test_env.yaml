@@ -10,4 +10,5 @@ dependencies:
   - openssl
   - pytest
   - openeye-toolkits
+  - openmmtools
 prefix: /lila/home/takabak/mambaforge/envs/espfit

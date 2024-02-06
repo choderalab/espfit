@@ -1,5 +1,6 @@
 name: espfit
 channels:
+  - openeye
   - conda-forge
 dependencies:
   - _libgcc_mutex=0.1=conda_forge
@@ -42,13 +43,14 @@ dependencies:
   - bzip2=1.0.8=hd590300_5
   - c-ares=1.24.0=hd590300_0
   - c-blosc2=2.12.0=hb4ffafa_0
-  - ca-certificates=2023.11.17=hbcca054_0
+  - ca-certificates=2024.2.2=hbcca054_0
   - cached-property=1.5.2=hd8ed1ab_1
   - cached_property=1.5.2=pyha770c72_1
   - cachetools=5.3.2=pyhd8ed1ab_0
   - cairo=1.18.0=h3faef2a_0
-  - certifi=2023.11.17=pyhd8ed1ab_0
+  - certifi=2024.2.2=pyhd8ed1ab_0
   - cffi=1.16.0=py311hb3a22ac_0
+  - cftime=1.6.3=py311h1f0f07a_0
   - chardet=5.2.0=py311h38be061_1
   - charset-normalizer=3.3.2=pyhd8ed1ab_0
   - click=8.1.7=unix_pyh707e725_0
@@ -169,6 +171,7 @@ dependencies:
   - libjpeg-turbo=3.0.0=hd590300_1
   - liblapack=3.9.0=16_linux64_mkl
   - liblapacke=3.9.0=16_linux64_mkl
+  - libllvm14=14.0.6=hcd5def8_4
   - libllvm15=15.0.7=hb3ce162_4
   - libmagma=2.7.2=h09b5827_2
   - libmagma_sparse=2.7.2=h09b5827_2
@@ -198,6 +201,7 @@ dependencies:
   - libzip=1.10.1=h2629f0a_3
   - libzlib=1.2.13=hd590300_5
   - llvm-openmp=17.0.6=h4dfa4b3_0
+  - llvmlite=0.42.0=py311ha6695c7_1
   - lxml=5.1.0=py311h9691dec_0
   - lz4-c=1.9.4=hcb278e6_0
   - lzo=2.10=h516909a_1000
@@ -214,6 +218,7 @@ dependencies:
   - ml_dtypes=0.2.0=py311h320fe9a_2
   - mpc=1.3.1=hfe3b2da_0
   - mpfr=4.2.1=h9458935_0
+  - mpiplus=v0.0.2=pyhd8ed1ab_0
   - mpmath=1.3.0=pyhd8ed1ab_0
   - msgpack-python=1.0.7=py311h9547e67_0
   - multidict=6.0.4=py311h459d7ec_1
@@ -225,15 +230,19 @@ dependencies:
   - ncurses=6.4=h59595ed_2
   - nest-asyncio=1.5.8=pyhd8ed1ab_0
   - netcdf-fortran=4.6.1=nompi_hacb5139_103
+  - netcdf4=1.6.5=nompi_py311he8ad708_100
   - networkx=3.2.1=pyhd8ed1ab_0
   - nglview=3.0.8=pyh1da8cd4_0
+  - nose=1.3.7=py_1006
   - notebook=7.0.6=pyhd8ed1ab_0
   - notebook-shim=0.2.3=pyhd8ed1ab_0
+  - numba=0.59.0=py311h96b013e_1
   - numexpr=2.8.7=mkl_py311hbaa3ca7_4
   - numpy=1.26.3=py311h64a7726_0
   - oauthlib=3.2.2=pyhd8ed1ab_0
   - ocl-icd=2.3.1=h7f98852_0
   - ocl-icd-system=1.0.0=1
+  - openeye-toolkits=2023.2.3=py311_0
   - openff-amber-ff-ports=0.0.4=pyhca7485f_0
   - openff-forcefields=2023.11.0=pyhca7485f_0
   - openff-interchange=0.3.18=pyhd8ed1ab_0
@@ -243,8 +252,8 @@ dependencies:
   - openff-utilities=0.1.12=pyhd8ed1ab_0
   - openjpeg=2.5.0=h488ebb8_3
   - openmm=8.1.0=py311h6d2dbb8_1
-  - openmmforcefields=0.11.2=pyhd8ed1ab_1
-  - openssl=3.2.0=hd590300_1
+  - openmmtools=0.23.1=pyhd8ed1ab_0
+  - openssl=3.2.1=hd590300_0
   - opt_einsum=3.3.0=pyhc1e730c_2
   - orc=1.9.2=h4b38347_0
   - overrides=7.4.0=pyhd8ed1ab_0
@@ -285,6 +294,7 @@ dependencies:
   - pyedr=0.8.0=pyhd8ed1ab_0
   - pygments=2.17.2=pyhd8ed1ab_0
   - pyjwt=2.8.0=pyhd8ed1ab_0
+  - pymbar=3.1.1=py311h4c7f6c3_2
   - pyopenssl=23.3.0=pyhd8ed1ab_0
   - pyparsing=3.1.1=pyhd8ed1ab_0
   - pysocks=1.7.1=pyha2e5f31_6
@@ -391,6 +401,7 @@ dependencies:
       - mmpbsa-py==16.0
       #- openff-toolkit==0.14.5+1.g7e9d022
       - git+https://github.com/kntkb/openff-toolkit.git@7e9d0225782ef723083407a1cbf1f4f70631f934
+      - openmmforcefields==0.12.0
       - packmol-memgen==2023.2.24
       - pdb4amber==22.0
       - pymsmt==22.0
