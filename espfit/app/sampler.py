@@ -146,7 +146,7 @@ class BaseSimulation(object):
         self.simulation.step(self.nsteps)
 
 
-    def export_xml(self, exportSystem=True, exportState=True, exportIntegrator=True):
+    def export_xml(self, exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
         """Export serialized system XML file and solvated pdb file.
 
         TODO
@@ -170,6 +170,9 @@ class BaseSimulation(object):
         """
         from openmm import XmlSerializer
         _logger.info(f"Serialize and export system")
+
+        if output_directory_path is not None:
+            self.output_directory_path = output_directory_path
 
         # Create output directory if not exists
         os.makedirs(self.output_directory_path, exist_ok=True)
@@ -287,8 +290,8 @@ class SetupSampler(BaseSimulation):
     >>> from espfit.app.sampler import SetupSampler
     >>> c = SetupSampler()
     >>> c.create_system(biopolymer_file='protein.pdb', ligand_file='ligand.sdf')
-    >>> c.minimize()
-    >>> c.run()
+    >>> c.minimize(maxIterations=10)
+    >>> c.run(nsteps=10)
 
     Notes
     -----
