@@ -40,8 +40,35 @@ class BaseSimulation(object):
     """
     def __init__(self, output_prefix='examples/sampler', restart_prefix='examples/sampler'):
         self.output_prefix = output_prefix
-        self.restrat_prefix = restart_prefix
+        self.restart_prefix = restart_prefix
+        self.platform = self._get_platform()
 
+
+    def _get_platform(self):
+        """Get fastest platform. 
+        
+        Notes
+        -----
+        Set CUDA DeterministicForces to true for accurate reweighting using MBAR.
+        See the following for more details:
+        * http://docs.openmm.org/latest/userguide/library/04_platform_specifics.html
+        * https://github.com/openmm/openmm/issues/1947#issuecomment-350119490
+                
+        Returns
+        -------
+        platform : object
+            OpenMM platform
+        """
+        from openmmtools.utils import get_fastest_platform
+        platform = get_fastest_platform()
+        platform_name = platform.getName()
+        _logger.info(f"Fastest platform: {platform_name}")
+        if platform_name == "CUDA":
+            platform.setPropertyDefaultValue('DeterministicForces', 'true')  # default is false
+            platform.setPropertyDefaultValue('Precision', 'mixed')  # default is single
+        
+        return platform
+    
 
     def minimize(self, maxIterations=100):
         """Minimize solvated system.
@@ -172,8 +199,8 @@ class BaseSimulation(object):
                     self.simulation.topology,
                     self.simulation.context.getState(
                         getPositions=True,
-                        enforcePeriodicBox=False).getPositions(),
-                        #enforcePeriodicBox=True).getPositions(),
+                        #enforcePeriodicBox=False).getPositions(),
+                        enforcePeriodicBox=True).getPositions(),
                         file=wf,
                         keepIds=True
                 )
@@ -274,7 +301,7 @@ class SetupSampler(BaseSimulation):
     """
     def __init__(self, 
                  #small_molecule_forcefield='openff-2.1.0',
-                 small_molecule_forcefield='/home/takabak/.espaloma/espaloma-0.3.2.pt',
+                 small_molecule_forcefield='espfit/data/forcefield/espaloma-0.3.2.pt',
                  forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'],
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
@@ -513,7 +540,7 @@ class SetupSampler(BaseSimulation):
 
         # Create simulation
         self.integrator = LangevinMiddleIntegrator(self.temperature, 1/unit.picosecond, self.timestep)
-        self.simulation = app.Simulation(self.new_solvated_topology, self.new_solvated_system, self.integrator)
+        self.simulation = app.Simulation(self.new_solvated_topology, self.new_solvated_system, self.integrator, self.platform)
         self.simulation.context.setPositions(self.modeller_solvated_positions)
 
 
@@ -621,7 +648,7 @@ class SetupSampler(BaseSimulation):
 
         Returns
         -------
-            app.Topology : The updated topology reflecting the new system.
+        app.Topology : The updated topology reflecting the new system.
         """
         _logger.info("Update residue names in espaloma topology.")
         
@@ -668,23 +695,42 @@ class SetupSampler(BaseSimulation):
         return new_topology
 
 
-    def from_xml(self):
+    @classmethod
+    def from_xml(cls, restart_prefix=None):
         """Load serialized system XML file and solvated pdb file.
-        """
-    
-        from openmm import XmlSerializer
 
+        Parameters
+        ----------
+        restart_prefix : str, optional
+            Prefix for restart files. Default is None.
+
+        Returns
+        -------
+        None
+        """
+        instance = cls()
+        
+        if restart_prefix is not None:
+            instance.restart_prefix = restart_prefix
+
+        from openmm import XmlSerializer
+        
         # Deserialize system file and load system
-        with open(os.path.join(self.restart_prefix, 'system.xml'), 'r') as f:
-            self.new_solvated_system = XmlSerializer.deserialize(f.read())
+        with open(os.path.join(instance.restart_prefix, 'system.xml'), 'r') as f:
+            system = XmlSerializer.deserialize(f.read())
 
         # Deserialize integrator file and load integrator
-        with open(os.path.join(self.restart_prefix, 'integrator.xml'), 'r') as f:
-            self.integrator = XmlSerializer.deserialize(f.read())
+        with open(os.path.join(instance.restart_prefix, 'integrator.xml'), 'r') as f:
+            integrator = XmlSerializer.deserialize(f.read())
 
         # Set up simulation
-        self.simulation = app.Simulation(self.new_solvated_system.topology, self.new_solvated_system, self.integrator)
-        with open(os.path.join(self.restart_prefix, 'state.xml'), 'r') as f:
+        pdb = app.PDBFile(os.path.join(instance.restart_prefix, 'state.pdb'))
+        instance.simulation = app.Simulation(pdb.topology, system, integrator, instance.platform)
+
+        # Load state
+        with open(os.path.join(instance.restart_prefix, 'state.xml'), 'r') as f:
             state = XmlSerializer.deserialize(f.read())
-        self.simulation.context.setState(state)
+        instance.simulation.context.setState(state)
+    
+        return instance
     
