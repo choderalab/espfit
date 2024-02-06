@@ -7,6 +7,7 @@ espfit
 
 Infrastruture to train espaloma with experimental observables
 
+
 ### Installation
 >mamba create -n espfit  
 >mamba install -c conda-forge espaloma=0.3.2  
@@ -19,6 +20,9 @@ Infrastruture to train espaloma with experimental observables
 >conda uninstall --force openmmforcefields  
 >#use pip instead of mamba to avoid dependency issues with ambertools and python  
 >pip install git+https://github.com/openmm/openmmforcefields@0.12.0
+>#install openmmtools
+>mamba install openmmtools
+
 
 ### Quick Usage
 
@@ -49,12 +53,22 @@ model.train()
 ```
 #### Standard MD (default: espaloma-0.3.2 force field for solute molecules)
 ```python
+# Create a new system and run simulation
 from espfit.app.sampler import SetupSampler
 c = SetupSampler()
 filename = 'espfit/data/target/testsystems/nucleoside/pdbfixer_min.pdb'
 c.create_system(biopolymer_file=filename)
-c.minimize()
-c.run()
+c.minimize(maxIterations=10)
+c.run(nsteps=10)
+# Export to XML
+c.export_xml(exportSystem=True, exportState=True, exportIntegrator=True)
+```
+
+#### Re-start MD from exisiting XML
+```python
+from espfit.app.sampler import SetupSampler
+c = SetupSampler.from_xml(restart_prefix='examples/sampler')
+c.run(nsteps=10)
 ```
 
 ### Prerequisite
