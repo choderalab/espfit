@@ -346,32 +346,38 @@ class SetupSampler(BaseSimulation):
         updated_forcefield_files : list
             List of forcefield files
         """
+        # TODO: Is this the right way to handle this issue?
+        # Deepcopy forcefield_files to avoid appending forcefield files multiple times.
+        # For some reason, the original forcefield_files keeps appending when SetupSampler is called.
+        import copy
+        _forcefield_files = copy.deepcopy(forcefield_files)
+
         # 3-site water models
         if self.water_model == 'tip3p':
-            forcefield_files.append(['amber/tip3p_standard.xml', 'amber/tip3p_HFE_multivalent.xml'])
+            _forcefield_files.append(['amber/tip3p_standard.xml', 'amber/tip3p_HFE_multivalent.xml'])
         elif self.water_model == 'tip3pfb':
             self.water_model = 'tip3p'
-            forcefield_files.append(['amber/tip3pfb_standard.xml', 'amber/tip3pfb_HFE_multivalent.xml'])
+            _forcefield_files.append(['amber/tip3pfb_standard.xml', 'amber/tip3pfb_HFE_multivalent.xml'])
         elif self.water_model == 'spce':
             self.water_model = 'tip3p'
-            forcefield_files.append(['amber/spce_standard.xml', 'amber/spce_HFE_multivalent.xml'])
+            _forcefield_files.append(['amber/spce_standard.xml', 'amber/spce_HFE_multivalent.xml'])
         elif self.water_model == 'opc3':
             raise NotImplementedError('see https://github.com/choderalab/rna-espaloma/blob/main/experiment/nucleoside/script/create_system_espaloma.py#L366')
         # 4-site water models
         elif self.water_model == 'tip4pew':
             self.water_model = 'tip4pew'
-            forcefield_files.append(['amber/tip4pew_standard.xml', 'amber/tip4pew_HFE_multivalent.xml'])
+            _forcefield_files.append(['amber/tip4pew_standard.xml', 'amber/tip4pew_HFE_multivalent.xml'])
         elif self.water_model == 'tip4pfb':
             self.water_model = 'tip4pew'
-            forcefield_files.append(['amber/tip4pfb_standard.xml', 'amber/tip4pfb_HFE_multivalent.xml'])
+            _forcefield_files.append(['amber/tip4pfb_standard.xml', 'amber/tip4pfb_HFE_multivalent.xml'])
         elif self.water_model == 'opc':
             self.water_model = 'tip4pew'
-            forcefield_files.append(['amber/opc_standard.xml'])
+            _forcefield_files.append(['amber/opc_standard.xml'])
         else:
             raise NotImplementedError(f'Water model {self.water_model} is not supported.')
         # Flatten list
         new_forcefield_files = []
-        for f in forcefield_files:
+        for f in _forcefield_files:
             if isinstance(f, list):
                 new_forcefield_files.extend(f)
             else:
