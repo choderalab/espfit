@@ -185,16 +185,16 @@ class EspalomaModel(object):
             return net
 
 
-    def _restart_checkpoint(self, output_prefix):
+    def _restart_checkpoint(self, output_directory_path):
         """Load the last checkpoint and restart the training process.
 
-        This method finds all the checkpoint files in the directory specified by `output_prefix`, 
+        This method finds all the checkpoint files in the directory specified by `output_directory_path`, 
         loads the last checkpoint (e.g. net100.pt), and restarts the training process from the next step. If no 
         checkpoint files are found, the training process starts from the first step.
 
         Parameters
         ----------
-        output_prefix : str
+        output_directory_path : str
             The directory where the checkpoint files are stored.
 
         Returns
@@ -206,13 +206,13 @@ class EspalomaModel(object):
         import glob
         import torch
 
-        checkpoints = glob.glob("{}/*.pt".format(output_prefix))
+        checkpoints = glob.glob("{}/*.pt".format(output_directory_path))
         
         if checkpoints:
             n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
             n.sort()
             restart_epoch = n[-1]
-            restart_checkpoint = os.path.join(output_prefix, f"net{restart_epoch}.pt")
+            restart_checkpoint = os.path.join(output_directory_path, f"net{restart_epoch}.pt")
             self.net.load_state_dict(torch.load(restart_checkpoint))
             logging.info(f'Restarting from ({restart_checkpoint}).')
         else:
@@ -221,7 +221,7 @@ class EspalomaModel(object):
         return restart_epoch
     
 
-    def train(self, epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_prefix=None):
+    def train(self, epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_directory_path=None):
         """
         Train the Espaloma network model.
 
@@ -243,7 +243,7 @@ class EspalomaModel(object):
         checkpoint_frequency : int, default=10
             The frequency at which the model should be saved.
 
-        output_prefix : str, default=None
+        output_directory_path : str, default=None
             The directory where the model checkpoints should be saved. If not provided, current working directory will be used.
 
         Returns
@@ -273,14 +273,14 @@ class EspalomaModel(object):
         batch_size = config.get('batch_size', batch_size)
         learning_rate = config.get('learning_rate', learning_rate)
         checkpoint_frequency = config.get('checkpoint_frequency', checkpoint_frequency)
-        output_prefix = Path.cwd()
-        output_prefix = config.get('output_prefix', output_prefix)
+        output_directory_path = Path.cwd()
+        output_directory_path = config.get('output_directory_path', output_directory_path)
 
         # Create output directory if not exists
-        os.makedirs(output_prefix, exist_ok=True)
+        os.makedirs(output_directory_path, exist_ok=True)
 
         # Restart from checkpoint if exists
-        restart_epoch = self._restart_checkpoint(output_prefix)
+        restart_epoch = self._restart_checkpoint(output_directory_path)
         if restart_epoch >= epochs:
             _logger.info(f'Already trained for {epochs} epochs.')
             return
@@ -315,7 +315,7 @@ class EspalomaModel(object):
                         # Note: returned loss is a joint loss of different units.
                         _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
                         _logger.info(f'epoch {epoch}: {_loss:.3f}')
-                        checkpoint_file = os.path.join(output_prefix, f"net{epoch}.pt")
+                        checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
                         torch.save(self.net.state_dict(), checkpoint_file)
 
 

@@ -151,12 +151,12 @@ class CustomGraphDataset(GraphDataset):
             duplicated_graphs.append(g)
             # Save graphs (optional)
             if save_merged_dataset == True:
-                # Notes: Create a temporary directory, `_output_prefix`, to support pytest in test_utils_graphs.py.
+                # Notes: Create a temporary directory, `_output_directory_path`, to support pytest in test_utils_graphs.py.
                 # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
-                _output_prefix = os.path.join(output_directory_path, dataset_name)
-                os.makedirs(_output_prefix, exist_ok=True)
-                output_prefix = os.path.join(_output_prefix, molname)
-                g.save(output_prefix)
+                _output_directory_path = os.path.join(output_directory_path, dataset_name)
+                os.makedirs(_output_directory_path, exist_ok=True)
+                output_directory_path = os.path.join(_output_directory_path, molname)
+                g.save(output_directory_path)
 
         # Update in place
         new_graphs = unique_graphs + duplicated_graphs

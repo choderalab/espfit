@@ -38,9 +38,9 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, output_prefix='examples/sampler', restart_prefix='examples/sampler'):
-        self.output_prefix = output_prefix
-        self.restart_prefix = restart_prefix
+    def __init__(self, output_directory_path='examples/sampler', restart_directory_path='examples/sampler'):
+        self.output_directory_path = output_directory_path
+        self.restart_directory_path = restart_directory_path
         self.platform = self._get_platform()
 
 
@@ -131,13 +131,13 @@ class BaseSimulation(object):
         from openmm.app import CheckpointReporter, StateDataReporter
 
         self._check_file_exists("traj.nc")
-        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_prefix, f"traj.nc"), self.netcdf_frequency, atomSubset=self.atom_indices))
+        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), self.netcdf_frequency, atomSubset=self.atom_indices))
         
         self._check_file_exists("checkpoint.chk")
-        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_prefix, f"checkpoint.chk"), self.checkpoint_frequency))
+        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), self.checkpoint_frequency))
         
         self._check_file_exists("reporter.log")
-        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_prefix, f"reporter.log"), self.logging_frequency, step=True, 
+        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), self.logging_frequency, step=True, 
                                                            potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, 
                                                            volume=True, density=True, speed=True))
         
@@ -172,13 +172,13 @@ class BaseSimulation(object):
         _logger.info(f"Serialize and export system")
 
         # Create output directory if not exists
-        os.makedirs(self.output_prefix, exist_ok=True)
+        os.makedirs(self.output_directory_path, exist_ok=True)
         state = self.simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True, getForces=True)
 
         # Save system
         if exportSystem:
             self._check_file_exists("system.xml")
-            outfile = os.path.join(self.output_prefix, f"system.xml")
+            outfile = os.path.join(self.output_directory_path, f"system.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(self.simulation.system)
                 wf.write(xml)
@@ -186,14 +186,14 @@ class BaseSimulation(object):
         # Save and serialize the final state
         if exportState:
             self._check_file_exists("state.xml")            
-            outfile = os.path.join(self.output_prefix, f"state.xml")
+            outfile = os.path.join(self.output_directory_path, f"state.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(state)
                 wf.write(xml)
 
             # Save as pdb file
             self._check_file_exists("state.pdb")
-            outfile = os.path.join(self.output_prefix, f"state.pdb")
+            outfile = os.path.join(self.output_directory_path, f"state.pdb")
             with open(f"{outfile}", "w") as wf:
                 app.PDBFile.writeFile(
                     self.simulation.topology,
@@ -208,7 +208,7 @@ class BaseSimulation(object):
         # Save and serialize integrator
         if exportIntegrator:
             self._check_file_exists("integrator.xml")
-            outfile = os.path.join(self.output_prefix, f"integrator.xml")
+            outfile = os.path.join(self.output_directory_path, f"integrator.xml")
             with open(f"{outfile}", "w") as wf:
                 xml = XmlSerializer.serialize(self.simulation.integrator)
                 wf.write(xml)
@@ -229,14 +229,14 @@ class BaseSimulation(object):
         import glob
         import shutil
 
-        if os.path.exists(os.path.join(self.output_prefix, filename)):
+        if os.path.exists(os.path.join(self.output_directory_path, filename)):
             basename, extension = os.path.splitext(filename)
-            index = len(glob.glob(os.path.join(self.output_prefix, f"{basename}*{extension}")))
+            index = len(glob.glob(os.path.join(self.output_directory_path, f"{basename}*{extension}")))
             
             _logger.info(f"File {filename} already exists. Rename to {basename}{index}{extension}.")
             shutil.copy(
-                os.path.join(self.output_prefix, filename),
-                os.path.join(self.output_prefix, f"{basename}{index}{extension}")
+                os.path.join(self.output_directory_path, filename),
+                os.path.join(self.output_directory_path, f"{basename}{index}{extension}")
             )
 
 
@@ -619,7 +619,7 @@ class SetupSampler(BaseSimulation):
                         
             import glob
             # Save complexed model and seperate biopolymers into indivdual pdb files according to chain ID
-            complex_espaloma_filename = os.path.join(self.output_prefix, "complex_solvated_espaloma.pdb")
+            complex_espaloma_filename = os.path.join(self.output_directory_path, "complex_solvated_espaloma.pdb")
             if not os.path.exists(complex_espaloma_filename):
                 with open(complex_espaloma_filename, 'w') as outfile:
                     app.PDBFile.writeFile(self.new_solvated_topology, self.modeller_solvated_positions, outfile)
@@ -627,8 +627,8 @@ class SetupSampler(BaseSimulation):
                 for chain_index in biopolymer_chain_indices:
                     t = md.load_pdb(complex_espaloma_filename)
                     indices = t.topology.select(f"chainid == {chain_index}")
-                    t.atom_slice(indices).save_pdb(os.path.join(self.output_prefix, f"biopolymer_espaloma_{chain_index}.pdb"))
-                biopolymer_espaloma_filenames = glob.glob(self.output_prefix + "/biopolymer_espaloma_*.pdb")
+                    t.atom_slice(indices).save_pdb(os.path.join(self.output_directory_path, f"biopolymer_espaloma_{chain_index}.pdb"))
+                biopolymer_espaloma_filenames = glob.glob(self.output_directory_path + "/biopolymer_espaloma_*.pdb")
             biopolymer_molecules = [ Molecule.from_file(biopolymer_filename) for biopolymer_filename in biopolymer_espaloma_filenames ]
             self._system_generator.template_generator.add_molecules(biopolymer_molecules)
 
@@ -696,12 +696,12 @@ class SetupSampler(BaseSimulation):
 
 
     @classmethod
-    def from_xml(cls, restart_prefix=None):
+    def from_xml(cls, restart_directory_path=None):
         """Load serialized system XML file and solvated pdb file.
 
         Parameters
         ----------
-        restart_prefix : str, optional
+        restart_directory_path : str, optional
             Prefix for restart files. Default is None.
 
         Returns
@@ -710,25 +710,25 @@ class SetupSampler(BaseSimulation):
         """
         instance = cls()
         
-        if restart_prefix is not None:
-            instance.restart_prefix = restart_prefix
+        if restart_directory_path is not None:
+            instance.restart_directory_path = restart_directory_path
 
         from openmm import XmlSerializer
         
         # Deserialize system file and load system
-        with open(os.path.join(instance.restart_prefix, 'system.xml'), 'r') as f:
+        with open(os.path.join(instance.restart_directory_path, 'system.xml'), 'r') as f:
             system = XmlSerializer.deserialize(f.read())
 
         # Deserialize integrator file and load integrator
-        with open(os.path.join(instance.restart_prefix, 'integrator.xml'), 'r') as f:
+        with open(os.path.join(instance.restart_directory_path, 'integrator.xml'), 'r') as f:
             integrator = XmlSerializer.deserialize(f.read())
 
         # Set up simulation
-        pdb = app.PDBFile(os.path.join(instance.restart_prefix, 'state.pdb'))
+        pdb = app.PDBFile(os.path.join(instance.restart_directory_path, 'state.pdb'))
         instance.simulation = app.Simulation(pdb.topology, system, integrator, instance.platform)
 
         # Load state
-        with open(os.path.join(instance.restart_prefix, 'state.xml'), 'r') as f:
+        with open(os.path.join(instance.restart_directory_path, 'state.xml'), 'r') as f:
             state = XmlSerializer.deserialize(f.read())
         instance.simulation.context.setState(state)
     
