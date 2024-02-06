@@ -86,7 +86,7 @@ class BaseSimulation(object):
         self.simulation.minimizeEnergy(maxIterations)
 
 
-    def run(self, checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, nsteps=250000, atom_indices=None):
+    def run(self, checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, nsteps=250000, atom_indices=None, output_directory_path=None):
         """Run standard MD simulation.
 
         Parameters
@@ -106,6 +106,9 @@ class BaseSimulation(object):
         atom_indices : list, default=None
             List of atom indices to save. If None, save all atoms except water and ions.
 
+        output_directory_path : str, default=None
+            The path to the output directory. If None, the default output directory is used.
+
         Returns
         -------
         None
@@ -115,8 +118,10 @@ class BaseSimulation(object):
         self.netcdf_frequency = netcdf_frequency
         self.nsteps = nsteps
         self.atom_indices = atom_indices
+        if output_directory_path is not None:
+            self.output_directory_path = output_directory_path
 
-        # Selet atoms to save
+        # Select atoms to save
         import mdtraj as md
         if self.atom_indices is None:
             self.atom_indices = []
