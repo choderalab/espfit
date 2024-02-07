@@ -11,4 +11,5 @@ dependencies:
   - pytest
   - openeye-toolkits
   - openmmtools
+  - barnaba
 prefix: /lila/home/takabak/mambaforge/envs/espfit
