@@ -39,9 +39,33 @@ class BaseSimulation(object):
         Export serialized system XML file and solvated pdb file.
     """
     def __init__(self, output_directory_path='examples/sampler', restart_directory_path='examples/sampler'):
-        self.output_directory_path = output_directory_path
+        """Initialize base simulation object.
+        
+        Parameters
+        ----------
+        output_directory_path : str, default='examples/sampler'
+            The path to the output directory.
+
+        restart_directory_path : str, default='examples/sampler'
+            The path to the restart directory.
+        """
+        self.output_directory_path = output_directory_path  # TODO: Is the property decorator and setter properly defined?
         self.restart_directory_path = restart_directory_path
         self.platform = self._get_platform()
+
+
+    @property
+    def output_directory_path(self):
+        """Get output directory path."""
+        return self._output_directory_path
+
+
+    @output_directory_path.setter
+    def output_directory_path(self, value):
+        """Set output directory path."""
+        self._output_directory_path = value
+        # Create output directory if it does not exist
+        os.makedirs(value, exist_ok=True)
 
 
     def _get_platform(self):
@@ -119,13 +143,13 @@ class BaseSimulation(object):
         self.nsteps = nsteps
         self.atom_indices = atom_indices
         if output_directory_path is not None:
-            self.output_directory_path = output_directory_path
+            self.output_directory_path = output_directory_path  # property decorator is called
 
         # Select atoms to save
-        import mdtraj as md
+        import mdtraj
         if self.atom_indices is None:
             self.atom_indices = []
-            mdtop = md.Topology.from_openmm(self.simulation.topology)
+            mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
             res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
             for r in res:
                 for a in r.atoms:
@@ -136,15 +160,19 @@ class BaseSimulation(object):
         from openmm.app import CheckpointReporter, StateDataReporter
 
         self._check_file_exists("traj.nc")
-        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), self.netcdf_frequency, atomSubset=self.atom_indices))
+        self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), 
+                                                        min(self.netcdf_frequency, self.nsteps), 
+                                                        atomSubset=self.atom_indices))
         
         self._check_file_exists("checkpoint.chk")
-        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), self.checkpoint_frequency))
+        self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), 
+                                                            min(self.checkpoint_frequency, self.nsteps)))
         
         self._check_file_exists("reporter.log")
-        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), self.logging_frequency, step=True, 
-                                                           potentialEnergy=True, kineticEnergy=True, totalEnergy=True, temperature=True, 
-                                                           volume=True, density=True, speed=True))
+        self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), 
+                                                           min(self.logging_frequency, self.nsteps), 
+                                                           step=True, potentialEnergy=True, kineticEnergy=True, 
+                                                           totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
         
         # Run
         _logger.info(f"Run MD simulation for {self.nsteps} steps")
@@ -177,10 +205,11 @@ class BaseSimulation(object):
         _logger.info(f"Serialize and export system")
 
         if output_directory_path is not None:
+            # Create a new output directory different from the one specified when the SetupSampler instance was created.
             self.output_directory_path = output_directory_path
+            # Create a new output directory different from the one specified when the SetupSampler instance was created.
+            #os.makedirs(self.output_directory_path, exist_ok=True)
 
-        # Create output directory if not exists
-        os.makedirs(self.output_directory_path, exist_ok=True)
         state = self.simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True, getForces=True)
 
         # Save system
@@ -254,37 +283,6 @@ class SetupSampler(BaseSimulation):
     Use espaloma force field as default to self-consistently parameterize the biopolymer-ligand system.
     Use Perses 0.10.1 default parameter settings to setup the system.
 
-    Parameters
-    ----------
-    small_molecule_forcefield : str, optional
-        The force field to be used for small molecules. Default is 'openff-2.1.0'.
-    forcefield_files : list, optional
-        List of force field files. Default is ['amber14-all.xml'].
-    water_model : str, optional
-        The water model to be used. Default is 'tip3p'.
-    solvent_padding : Quantity, optional
-        The padding distance around the solute in the solvent box. Default is 9.0 * unit.angstroms.
-    ionic_strength : Quantity, optional
-        The ionic strength of the solvent. Default is 0.15 * unit.molar.
-    constraints : object, optional
-        The type of constraints to be applied to the system. Default is app.HBonds.
-    hmass : Quantity, optional
-        The mass of the hydrogen atoms. Default is 3.0 * unit.amu.
-    temperature : Quantity, optional
-        The temperature of the system. Default is 300.0 * unit.kelvin.
-    pressure : Quantity, optional
-        The pressure of the system. Default is 1.0 * unit.atmosphere.
-    pme_tol : float, optional
-        The Ewald error tolerance for PME electrostatics. Default is 2.5e-04.
-    nonbonded_method : object, optional
-        The nonbonded method to be used for the system. Default is app.PME.
-    barostat_period : int, optional
-        The frequency at which the barostat is applied. Default is 50.
-    timestep : Quantity, optional
-        The integration timestep. Default is 4 * unit.femtoseconds.
-    override_with_espaloma : bool, optional
-        Whether to override the original parameters with espaloma. Default is True.
-
     Methods
     -------
     create_system(biopolymer_file=None, ligand_file=None):
@@ -323,8 +321,42 @@ class SetupSampler(BaseSimulation):
                  barostat_period=50, 
                  timestep=4 * unit.femtoseconds, 
                  override_with_espaloma=True,
+                 **kwargs
                  ):
-        super(SetupSampler, self).__init__()
+        """Initialize SetupSampler.
+        
+        Parameters
+        ----------
+        small_molecule_forcefield : str, optional
+            The force field to be used for small molecules. Default is 'openff-2.1.0'.
+        forcefield_files : list, optional
+            List of force field files. Default is ['amber14-all.xml'].
+        water_model : str, optional
+            The water model to be used. Default is 'tip3p'.
+        solvent_padding : Quantity, optional
+            The padding distance around the solute in the solvent box. Default is 9.0 * unit.angstroms.
+        ionic_strength : Quantity, optional
+            The ionic strength of the solvent. Default is 0.15 * unit.molar.
+        constraints : object, optional
+            The type of constraints to be applied to the system. Default is app.HBonds.
+        hmass : Quantity, optional
+            The mass of the hydrogen atoms. Default is 3.0 * unit.amu.
+        temperature : Quantity, optional
+            The temperature of the system. Default is 300.0 * unit.kelvin.
+        pressure : Quantity, optional
+            The pressure of the system. Default is 1.0 * unit.atmosphere.
+        pme_tol : float, optional
+            The Ewald error tolerance for PME electrostatics. Default is 2.5e-04.
+        nonbonded_method : object, optional
+            The nonbonded method to be used for the system. Default is app.PME.
+        barostat_period : int, optional
+            The frequency at which the barostat is applied. Default is 50.
+        timestep : Quantity, optional
+            The integration timestep. Default is 4 * unit.femtoseconds.
+        override_with_espaloma : bool, optional
+            Whether to override the original parameters with espaloma. Default is True.
+        """
+        super(SetupSampler, self).__init__(**kwargs)
         self.small_molecule_forcefield = small_molecule_forcefield
         self.water_model = water_model
         self.forcefield_files = self._update_forcefield_files(forcefield_files)
@@ -351,9 +383,9 @@ class SetupSampler(BaseSimulation):
         updated_forcefield_files : list
             List of forcefield files
         """
-        # TODO: Is this the right way to handle this issue?
         # Deepcopy forcefield_files to avoid appending forcefield files multiple times.
         # For some reason, the original forcefield_files keeps appending when SetupSampler is called.
+        # TODO: Is this the right way to handle this issue?
         import copy
         _forcefield_files = copy.deepcopy(forcefield_files)
 
@@ -420,7 +452,7 @@ class SetupSampler(BaseSimulation):
     def _get_complex(self):
         """Merge biopolymer and ligand topology and position. Return complex topology and position."""
         import numpy as np
-        import mdtraj as md
+        import mdtraj
 
         # Define complex topology and positions
         if self._biopolymer_file is not None and self._ligand_file is None:
@@ -432,8 +464,8 @@ class SetupSampler(BaseSimulation):
         elif self._biopolymer_file is not None and self._ligand_file is not None:
             _logger.debug("Merge biopolymer-ligand topology")
             # Convert openmm topology to mdtraj topology
-            biopolymer_md_topology = md.Topology.from_openmm(self._biopolymer.topology)
-            ligand_md_topology = md.Topology.from_openmm(self._ligand_topology)
+            biopolymer_md_topology = mdtraj.Topology.from_openmm(self._biopolymer.topology)
+            ligand_md_topology = mdtraj.Topology.from_openmm(self._ligand_topology)
             # Merge topology
             complex_md_topology = biopolymer_md_topology.join(ligand_md_topology)
             complex_topology = complex_md_topology.to_openmm()
@@ -457,6 +489,9 @@ class SetupSampler(BaseSimulation):
 
         Parameters
         ----------
+        biopolymer_file : str
+            biopolymer pdb file
+
         ligand_file : str
             ligand sdf file. The first ligand entry will be used if multiple ligands are stored.
 
@@ -552,6 +587,11 @@ class SetupSampler(BaseSimulation):
             self.new_solvated_system = self.modeller_solvated_system
             self.new_solvated_topology = self.modeller_solvated_topology
 
+        # Save solvated pdb file
+        outfile = os.path.join(self.output_directory_path, f"solvated.pdb")
+        with open(f"{outfile}", "w") as wf:
+            app.PDBFile.writeFile(self.new_solvated_topology, self.modeller_solvated_positions, file=wf, keepIds=True)
+
         # Create simulation
         self.integrator = LangevinMiddleIntegrator(self.temperature, 1/unit.picosecond, self.timestep)
         self.simulation = app.Simulation(self.new_solvated_topology, self.new_solvated_system, self.integrator, self.platform)
@@ -563,8 +603,8 @@ class SetupSampler(BaseSimulation):
 
         Reference
         ---------
-        - https://github.com/kntkb/perses/blob/support-protein-espaloma/perses/app/relative_setup.py#L883
-        - https://github.com/openforcefield/proteinbenchmark/blob/main/proteinbenchmark/system_setup.py#L651
+        * https://github.com/kntkb/perses/blob/support-protein-espaloma/perses/app/relative_setup.py#L883
+        * https://github.com/openforcefield/proteinbenchmark/blob/main/proteinbenchmark/system_setup.py#L651
 
         Parameters
         ----------
@@ -574,13 +614,13 @@ class SetupSampler(BaseSimulation):
         -------
         None
         """
-        import mdtraj as md
+        import mdtraj
         from openff.toolkit import Molecule
 
         _logger.info("Regenerate system with espaloma")
 
         # Check biopolymer chains
-        mdtop = md.Topology.from_openmm(self.modeller_solvated_topology)
+        mdtop = mdtraj.Topology.from_openmm(self.modeller_solvated_topology)
         chain_indices = [ chain.index for chain in self.modeller_solvated_topology.chains() ]
         biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL or resname UNK) and chainid == {chain_index}").any() ]
         _logger.info(f"Biopolymer chain indices: {biopolymer_chain_indices}")
@@ -639,7 +679,7 @@ class SetupSampler(BaseSimulation):
                     app.PDBFile.writeFile(self.new_solvated_topology, self.modeller_solvated_positions, outfile)
             if not biopolymer_espaloma_filenames:
                 for chain_index in biopolymer_chain_indices:
-                    t = md.load_pdb(complex_espaloma_filename)
+                    t = mdtraj.load_pdb(complex_espaloma_filename)
                     indices = t.topology.select(f"chainid == {chain_index}")
                     t.atom_slice(indices).save_pdb(os.path.join(self.output_directory_path, f"biopolymer_espaloma_{chain_index}.pdb"))
                 biopolymer_espaloma_filenames = glob.glob(self.output_directory_path + "/biopolymer_espaloma_*.pdb")
@@ -720,7 +760,7 @@ class SetupSampler(BaseSimulation):
 
         Returns
         -------
-        None
+        instance : object
         """
         instance = cls()
         
