@@ -32,6 +32,7 @@ dependencies:
   - aws-crt-cpp=0.26.0=h600aa22_5
   - aws-sdk-cpp=1.11.210=h405b101_9
   - babel=2.14.0=pyhd8ed1ab_0
+  - barnaba=0.1.9=pyhd8ed1ab_0
   - beautifulsoup4=4.12.2=pyha770c72_0
   - bleach=6.1.0=pyhd8ed1ab_0
   - blinker=1.7.0=pyhd8ed1ab_0
@@ -86,6 +87,7 @@ dependencies:
   - freetype=2.12.1=h267a509_2
   - freetype-py=2.3.0=pyhd8ed1ab_0
   - frozenlist=1.4.1=py311h459d7ec_0
+  - future=0.18.3=pyhd8ed1ab_0
   - gast=0.5.4=pyhd8ed1ab_0
   - gettext=0.21.1=h27087fc_0
   - gflags=2.2.2=he1b5a44_1004
@@ -329,6 +331,7 @@ dependencies:
   - rpds-py=0.16.2=py311h46250e7_0
   - rsa=4.9=pyhd8ed1ab_0
   - s2n=1.4.1=h06160fa_0
+  - scikit-learn=1.4.0=py311hc009520_0
   - scipy=1.11.4=py311h64a7726_0
   - send2trash=1.8.2=pyh41d4057_0
   - setuptools=69.0.3=pyhd8ed1ab_0
@@ -350,6 +353,7 @@ dependencies:
   - tensorflow-estimator=2.15.0=cuda118py311heba7942_1
   - termcolor=2.4.0=pyhd8ed1ab_0
   - terminado=0.18.0=pyh0d859eb_0
+  - threadpoolctl=3.2.0=pyha21a80b_0
   - tinycss2=1.2.1=pyhd8ed1ab_0
   - tinydb=4.8.0=pyhd8ed1ab_0
   - tk=8.6.13=noxft_h4845f30_101
