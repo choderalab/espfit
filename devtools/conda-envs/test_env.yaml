@@ -1,20 +1,15 @@
-name: test
+name: espfit
 channels:
-
   - conda-forge
-
-  - defaults
+  - openeye
 dependencies:
-    # Base depends
-  - python
-  - pip
-
-    # Testing
+  - espaloma=0.3.2
+  - pdbfixer
+  - ca-certificates
+  - certifi
+  - openssl
   - pytest
-  - pytest-cov
-  - codecov
-
-    # Pip-only installs
-  #- pip:
-  #  - codecov
-
+  - openeye-toolkits
+  - openmmtools
+  - barnaba
+prefix: /lila/home/takabak/mambaforge/envs/espfit
