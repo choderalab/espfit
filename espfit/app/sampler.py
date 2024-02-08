@@ -38,18 +38,25 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, output_directory_path='examples/sampler', restart_directory_path='examples/sampler'):
+    def __init__(self, output_directory_path=None, restart_directory_path=None):
         """Initialize base simulation object.
         
         Parameters
         ----------
-        output_directory_path : str, default='examples/sampler'
-            The path to the output directory.
+        output_directory_path : str, optional
+            Output directory path. Default is None.
+            If None, the current working directory will be used.
 
-        restart_directory_path : str, default='examples/sampler'
-            The path to the restart directory.
+        restart_directory_path : str, optional
+            Restart directory path. Default is None.
+            If None, the current working directory will be used.
         """
-        self.output_directory_path = output_directory_path  # TODO: Is the property decorator and setter properly defined?
+        if output_directory_path is None:
+            output_directory_path = os.getcwd()  # Is this right?
+        if restart_directory_path is None:
+            restart_directory_path = os.getcwd()
+        
+        self.output_directory_path = output_directory_path   # TODO: Is the property decorator and setter properly defined
         self.restart_directory_path = restart_directory_path
         self.platform = self._get_platform()
 
@@ -206,9 +213,7 @@ class BaseSimulation(object):
 
         if output_directory_path is not None:
             # Create a new output directory different from the one specified when the SetupSampler instance was created.
-            self.output_directory_path = output_directory_path
-            # Create a new output directory different from the one specified when the SetupSampler instance was created.
-            #os.makedirs(self.output_directory_path, exist_ok=True)
+            self.output_directory_path = output_directory_path   # property decorator is called
 
         state = self.simulation.context.getState(getPositions=True, getVelocities=True, getEnergy=True, getForces=True)
 
