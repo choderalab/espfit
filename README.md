@@ -22,6 +22,8 @@ Infrastruture to train espaloma with experimental observables
 >pip install git+https://github.com/openmm/openmmforcefields@0.12.0
 >#install openmmtools
 >mamba install openmmtools
+>#install barnaba
+>mamba install barnaba
 
 
 ### Quick Usage
