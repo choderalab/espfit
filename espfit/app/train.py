@@ -295,28 +295,27 @@ class EspalomaModel(object):
         from espfit.utils.units import HARTEE_TO_KCALPERMOL
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
-        if torch.cuda.is_available():
-            with torch.autograd.set_detect_anomaly(True):
-                for i in range(restart_epoch, epochs):
-                    epoch = i + 1    # Start from epoch 1 (not zero-indexing)
-                    for g in ds_tr_loader:
-                        optimizer.zero_grad()
-                        
-                        # TODO: Better way to handle this?
-                        if torch.cuda.is_available():
-                            g = g.to("cuda:0")
-                        
-                        g.nodes["n1"].data["xyz"].requires_grad = True 
-                        loss = self.net(g)
-                        loss.backward()
-                        optimizer.step()
+        with torch.autograd.set_detect_anomaly(True):
+            for i in range(restart_epoch, epochs):
+                epoch = i + 1    # Start from epoch 1 (not zero-indexing)
+                for g in ds_tr_loader:
+                    optimizer.zero_grad()
                     
-                    if epoch % checkpoint_frequency == 0:
-                        # Note: returned loss is a joint loss of different units.
-                        _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
-                        _logger.info(f'epoch {epoch}: {_loss:.3f}')
-                        checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
-                        torch.save(self.net.state_dict(), checkpoint_file)
+                    # TODO: Better way to handle this?
+                    if torch.cuda.is_available():
+                        g = g.to("cuda:0")
+                    
+                    g.nodes["n1"].data["xyz"].requires_grad = True 
+                    loss = self.net(g)
+                    loss.backward()
+                    optimizer.step()
+                
+                if epoch % checkpoint_frequency == 0:
+                    # Note: returned loss is a joint loss of different units.
+                    _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
+                    _logger.info(f'epoch {epoch}: {_loss:.3f}')
+                    checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
+                    torch.save(self.net.state_dict(), checkpoint_file)
 
 
     def validate():

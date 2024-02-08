@@ -46,32 +46,40 @@ def test_load_dataset(tmpdir):
     temporary_directory = tmpdir.mkdir('misc')
     ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
     ds.reshape_conformation_size(n_confs=50)
-    #ds.compute_relative_energy()
+    ds.compute_relative_energy()
 
     return ds
 
 
 def test_train(test_load_dataset, test_create_espaloma_model, tmpdir):
     """Test function to train an EspalomaModel object.
-    """
 
-    #
-    # TODO: STILL WORKING ON THIS FUNCTION
-    #
-    
+    Parameters
+    ----------
+    test_load_dataset : espfit.utils.graphs.CustomGraphDataset
+        The loaded dataset.
+
+    test_create_espaloma_model : espfit.app.train.EspalomaModel
+        The created EspalomaModel object.
+
+    tmpdir : py._path.local.LocalPath   # IS THIS CORRECT?
+        Temporary directory.
+    """
+    import glob
+
     # Load dataset and model
     ds = test_load_dataset
     model = test_create_espaloma_model
-
-    # create temporary checkpoint directory
-    checkpoint_directory = tmpdir.mkdir('checkpoints')
-    #model.config['espaloma']['output_prefix'] = checkpoint_directory
-    
-    # Train model
     model.dataset_train = ds
-    model.train(output_prefix=str(checkpoint_directory))   # overwrite output_prefix
+
+    # Create temporary checkpoint directory
+    checkpoint_directory = tmpdir.mkdir('checkpoints')   # PosixPath
+    model.config['espaloma']['train']['output_directory_path'] = str(checkpoint_directory)
+
+    # Train model
+    model.train()
 
     # Test if the model has been trained
-    import glob
     n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    assert n_checkpoints < 0
+    expected_n_checkpoints = int(model.config['espaloma']['train']['epochs']/model.config['espaloma']['train']['checkpoint_frequency'])
+    assert expected_n_checkpoints == n_checkpoints
