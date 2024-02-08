@@ -38,7 +38,7 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, output_directory_path=None, restart_directory_path=None):
+    def __init__(self, output_directory_path=None, input_directory_path=None):
         """Initialize base simulation object.
         
         Parameters
@@ -47,17 +47,17 @@ class BaseSimulation(object):
             Output directory path. Default is None.
             If None, the current working directory will be used.
 
-        restart_directory_path : str, optional
-            Restart directory path. Default is None.
+        input_directory_path : str, optional
+            Input directory path to restart simulation. Default is None.
             If None, the current working directory will be used.
         """
         if output_directory_path is None:
             output_directory_path = os.getcwd()  # Is this right?
-        if restart_directory_path is None:
-            restart_directory_path = os.getcwd()
+        if input_directory_path is None:
+            input_directory_path = os.getcwd()
         
         self.output_directory_path = output_directory_path   # TODO: Is the property decorator and setter properly defined
-        self.restart_directory_path = restart_directory_path
+        self.input_directory_path = input_directory_path
         self.platform = self._get_platform()
 
 
@@ -203,6 +203,9 @@ class BaseSimulation(object):
 
         exportIntegrator : bool, default=True
             Whether to export integrator XML file.
+
+        output_directory_path : str, default=None
+            The path to the output directory. If None, the default output directory is used.
 
         Returns
         -------
@@ -755,13 +758,13 @@ class SetupSampler(BaseSimulation):
 
 
     @classmethod
-    def from_xml(cls, restart_directory_path=None):
+    def from_xml(cls, input_directory_path=None):
         """Load serialized system XML file and solvated pdb file.
 
         Parameters
         ----------
-        restart_directory_path : str, optional
-            Prefix for restart files. Default is None.
+        input_directory_path : str, optional
+            Input directory path to restart simulation. Default is None.
 
         Returns
         -------
@@ -769,25 +772,25 @@ class SetupSampler(BaseSimulation):
         """
         instance = cls()
         
-        if restart_directory_path is not None:
-            instance.restart_directory_path = restart_directory_path
+        if input_directory_path is not None:
+            instance.input_directory_path = input_directory_path
 
         from openmm import XmlSerializer
         
         # Deserialize system file and load system
-        with open(os.path.join(instance.restart_directory_path, 'system.xml'), 'r') as f:
+        with open(os.path.join(instance.input_directory_path, 'system.xml'), 'r') as f:
             system = XmlSerializer.deserialize(f.read())
 
         # Deserialize integrator file and load integrator
-        with open(os.path.join(instance.restart_directory_path, 'integrator.xml'), 'r') as f:
+        with open(os.path.join(instance.input_directory_path, 'integrator.xml'), 'r') as f:
             integrator = XmlSerializer.deserialize(f.read())
 
         # Set up simulation
-        pdb = app.PDBFile(os.path.join(instance.restart_directory_path, 'state.pdb'))
+        pdb = app.PDBFile(os.path.join(instance.input_directory_path, 'state.pdb'))
         instance.simulation = app.Simulation(pdb.topology, system, integrator, instance.platform)
 
         # Load state
-        with open(os.path.join(instance.restart_directory_path, 'state.xml'), 'r') as f:
+        with open(os.path.join(instance.input_directory_path, 'state.xml'), 'r') as f:
             state = XmlSerializer.deserialize(f.read())
         instance.simulation.context.setState(state)
     

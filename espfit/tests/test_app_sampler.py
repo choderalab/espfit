@@ -195,7 +195,7 @@ def test_create_system_from_xml(test_create_test_espaloma_system, tmpdir):
     c.output_directory_path = str(tmpdir)
     c.export_xml()
 
-    c2 = SetupSampler.from_xml(restart_directory_path=str(tmpdir))
+    c2 = SetupSampler.from_xml(input_directory_path=str(tmpdir))
     c2.export_xml(output_directory_path=str(tmpdir))
 
     # Check number of exported files. Check state.xml as a representative file.

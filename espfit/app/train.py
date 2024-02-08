@@ -33,7 +33,7 @@ class EspalomaModel(object):
     >>> model.train()
     """
 
-    def __init__(self, net=None, dataset_train=None, dataset_validation=None, dataset_test=None, random_seed=2666):
+    def __init__(self, net=None, dataset_train=None, dataset_validation=None, dataset_test=None, random_seed=2666, config=None, output_directory_path=None):
         """Initialize an instance of the class with an Espaloma network model and a random seed.
 
         This constructor method sets up the Espaloma network model, the training, validation, test datasets, 
@@ -57,6 +57,13 @@ class EspalomaModel(object):
 
         random_seed : int, default=2666
             The random seed used throughout the espaloma training.
+
+        config : dict, default=None
+            The configuration for the espaloma model. If not provided, the `config` attribute will be set to None.
+
+        output_directory_path : str, default=None
+            The directory where the model checkpoints should be saved. 
+            If not provided, the checkpoints will be saved in the current working directory.
         """
         self.net = net
         self.dataset_train = dataset_train
@@ -64,6 +71,9 @@ class EspalomaModel(object):
         self.dataset_test = dataset_test
         self.random_seed = random_seed
         self.config = None   # TODO: Better way to handle this?
+        if output_directory_path is None:
+            import os
+            self.output_directory_path = os.getcwd()
 
 
     @classmethod
@@ -93,12 +103,17 @@ class EspalomaModel(object):
         except FileNotFoundError as e:
             print(e)
             raise
-        model = cls.create_model(config['espaloma'])
+        #model = cls.create_model(config['espaloma'])
         
         # TODO: Better way to handle this?
-        model = cls(model)
-        model.config = config
+        #model = cls(model)
+        #model.config = config
         
+        model = cls()
+        net = model.create_model(config['espaloma'])
+        model.net = net
+        model.config = config
+
         return model
 
 
@@ -244,7 +259,7 @@ class EspalomaModel(object):
             The frequency at which the model should be saved.
 
         output_directory_path : str, default=None
-            The directory where the model checkpoints should be saved. If not provided, current working directory will be used.
+            The directory where the model checkpoints should be saved. If None, the default output directory is used.
 
         Returns
         -------
@@ -254,11 +269,13 @@ class EspalomaModel(object):
         import torch
         from pathlib import Path
 
-        # Change default device to GPU if available
-        # Will this map all data onto GPU and cause memory error if the data is too large?
-        # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
         if torch.cuda.is_available():
             _logger.info('GPU is available for training.')
+
+            # Change default device to GPU if available
+            # Will this map all data onto GPU and cause memory error if the data is too large?
+            # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
+
             #torch.set_default_device('cuda')
         else:
             _logger.info('GPU is not available for training.')
@@ -273,11 +290,10 @@ class EspalomaModel(object):
         batch_size = config.get('batch_size', batch_size)
         learning_rate = config.get('learning_rate', learning_rate)
         checkpoint_frequency = config.get('checkpoint_frequency', checkpoint_frequency)
-        output_directory_path = Path.cwd()
-        output_directory_path = config.get('output_directory_path', output_directory_path)
-
-        # Create output directory if not exists
-        os.makedirs(output_directory_path, exist_ok=True)
+        if output_directory_path is not None:
+            self.output_directory_path = output_directory_path
+            # Create output directory if not exists
+            os.makedirs(output_directory_path, exist_ok=True)
 
         # Restart from checkpoint if exists
         restart_epoch = self._restart_checkpoint(output_directory_path)

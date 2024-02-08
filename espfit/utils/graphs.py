@@ -18,7 +18,7 @@ class CustomGraphDataset(GraphDataset):
 
     Methods
     -------
-    drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
+    drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
         Drop and merge duplicate nonisomeric smiles across different data sources.
 
     subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True):
@@ -51,25 +51,26 @@ class CustomGraphDataset(GraphDataset):
     >>> from espaloma.data.dataset import GraphDataset
     >>> path = 'espfit/data/qcdata/before-ff-calc/protein-torsion-sm'
     >>> ds = GraphDataset.load(path)
-    >>> # drop and merge duplicate molecules
-    >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path='.')
-    >>> # subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
-    >>> # this will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
+    >>> # Drop and merge duplicate molecules. Save merged dataset as a new dataset.
+    >>> # If `output_directory_path` is None, then the current working directory is used.
+    >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None)
+    >>> # Subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
+    >>> # This will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
     >>> ds.subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True)
-    >>> # filter high energy conformers (u_qm: QM reference before nonbonded interations are subtracted)
+    >>> # Filter high energy conformers (u_qm: QM reference before nonbonded interations are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_qm')
-    >>> # filter high energy conformers (u_ref: QM reference after nonbonded interactions are subtracted)
+    >>> # Filter high energy conformers (u_ref: QM reference after nonbonded interactions are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref')
-    >>> # filter conformers below certain number
+    >>> # Filter conformers below certain number
     >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
-    >>> # compute energies and forces using other force fields
+    >>> # Compute energies and forces using other force fields
     >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.0.0'])
-    >>> # regenerate improper torsions in-place
+    >>> # Regenerate improper torsions in-place
     >>> from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
     >>> ds.apply(regenerate_impropers, in_place=True)
-    >>> # reshape conformation size
+    >>> # Reshape conformation size
     >>> ds.reshape_conformation_size(n_confs=50)
-    >>> # compute relative energy. QM and MM energies mean are set to zero.
+    >>> # Compute relative energy. QM and MM energies mean are set to zero.
     >>> ds.compute_relative_energy()
     """
 
@@ -95,7 +96,7 @@ class CustomGraphDataset(GraphDataset):
         self.random_seed = random_seed
 
 
-    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path='.'):
+    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
         """Drop and merge duplicate nonisomeric smiles across different data sources.
 
         Modifies list of esp.Graph's in place.
@@ -107,16 +108,20 @@ class CustomGraphDataset(GraphDataset):
         
         dataset_name : str, default=misc
             Name of the merged dataset.
-        
-        output_directory_path : str, default='.'
-            Directory path to save the new dataset.
 
+        output_directory_path : str, default=None
+            Output directory path to save the merged dataset. 
+            If None, then the current working directory is used.
+        
         Returns
         -------
         None
         """
         import os
         import pandas as pd
+
+        if output_directory_path == None:
+            output_directory_path = os.getcwd()
 
         _logger.info(f'Drop and merge duplicate smiles')
         smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]

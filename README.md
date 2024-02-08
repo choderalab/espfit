@@ -19,11 +19,11 @@ Infrastruture to train espaloma with experimental observables
 >#uninstall openmmforcefields if < 0.12.0  
 >conda uninstall --force openmmforcefields  
 >#use pip instead of mamba to avoid dependency issues with ambertools and python  
->pip install git+https://github.com/openmm/openmmforcefields@0.12.0
->#install openmmtools
->mamba install openmmtools
->#install barnaba
->mamba install barnaba
+>pip install git+https://github.com/openmm/openmmforcefields@0.12.0  
+>#install openmmtools  
+>mamba install openmmtools  
+>#install barnaba  
+>mamba install barnaba  
 
 
 ### Quick Usage
@@ -35,24 +35,29 @@ from espfit.utils import logging
 logging.get_logging_level()
 #>'INFO'
 logging.set_logging_level('DEBUG')
-#>'DEBUG'
 ```
+
 #### Train espaloma
 ```python
-# load dgl graph data
+# Load dgl graph data
 from espfit.utils.graphs import CustomGraphDataset  
 path = 'espfit/data/qcdata/openff-toolkit-0.10.6/dgl2/protein-torsion-sm/'
 ds = CustomGraphDataset.load(path)
 ds.reshape_conformation_size(n_confs=50)
 ds.compute_relative_energy()
-# create esplama model
+# Create esplama model
 from espfit.app.train import EspalomaModel
 filename = 'espfit/data/config/config.toml'
 model = EspalomaModel.from_toml(filename)
 model.dataset_train = ds
-# train
-model.train()
+# Train
+model.train(output_directory_path='path/to/output')
+# To extend training, update the `epoch` in config.toml
+# Alternatively, do the following:
+model.config['espaloma']['train']['epochs'] = 50
+model.train(output_directory_path='path/to/output')
 ```
+
 #### Standard MD (default: espaloma-0.3.2 force field for solute molecules)
 ```python
 # Create a new system and run simulation
@@ -61,16 +66,24 @@ c = SetupSampler()
 filename = 'espfit/data/target/testsystems/nucleoside/pdbfixer_min.pdb'
 c.create_system(biopolymer_file=filename)
 c.minimize(maxIterations=10)
-c.run(nsteps=10)
+c.run(nsteps=10, output_directory_path='path/to/output')
 # Export to XML
-c.export_xml(exportSystem=True, exportState=True, exportIntegrator=True)
+c.export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path='path/to/output')
 ```
 
 #### Re-start MD from exisiting XML
 ```python
 from espfit.app.sampler import SetupSampler
-c = SetupSampler.from_xml(restart_prefix='examples/sampler')
-c.run(nsteps=10)
+c = SetupSampler.from_xml(input_directory_path='path/to/input')
+c.run(nsteps=10, output_directory_path='path/to/output')
+```
+
+#### Compute RNA J-couplings from MD trajectory
+```python
+from experiment import RNASystem
+rna = RNASystem()
+rna.load_traj(input_directory_path='path/to/input')
+couplings = rna.compute_jcouplings(couplings=['H1H2', 'H2H3', 'H3H4'], residues=['A_1_0'])
 ```
 
 ### Prerequisite
