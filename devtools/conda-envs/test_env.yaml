@@ -9,7 +9,9 @@ dependencies:
   - certifi
   - openssl
   - pytest
+  - pytest-cov
   - openeye-toolkits
   - openmmtools
   - barnaba
+  - openmmforcefields=0.12
 prefix: /lila/home/takabak/mambaforge/envs/espfit
