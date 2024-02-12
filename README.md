@@ -1,15 +1,16 @@
 espfit
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/espfit/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/espfit/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/espfit/branch/main/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/espfit/branch/main)
+[![CI](https://github.com/kntkb/espfit/actions/workflows/CI.yaml/badge.svg)](https://github.com/kntkb/espfit/actions/workflows/CI.yaml)
+[![codecov](https://codecov.io/gh/kntkb/espfit/branch/main/graph/badge.svg)](https://codecov.io/gh/kntkb/espfit/branch/main)
+<!--[![GitHub Actions Build Status](https://github.com/kntkb/espfit/workflows/CI/badge.svg)](https://github.com/kntkb/espfit/actions?query=workflow%3ACI)-->
 
 
 Infrastruture to train espaloma with experimental observables
 
 
 ### Installation
->mamba create -n espfit python=3.11 
+>mamba create -n espfit python=3.11  
 >mamba install -c conda-forge espaloma=0.3.2  
 >#uninstall openff-toolkit and install a customized version to support dgl graphs created using openff-toolkit=0.10.6  
 >conda uninstall --force openff-toolkit  
