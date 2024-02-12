@@ -9,7 +9,7 @@ Infrastruture to train espaloma with experimental observables
 
 
 ### Installation
->mamba create -n espfit  
+>mamba create -n espfit python=3.11 
 >mamba install -c conda-forge espaloma=0.3.2  
 >#uninstall openff-toolkit and install a customized version to support dgl graphs created using openff-toolkit=0.10.6  
 >conda uninstall --force openff-toolkit  
