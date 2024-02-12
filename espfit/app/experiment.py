@@ -243,3 +243,14 @@ class RNASystem(BaseDataLoader):
         available_coupling_names = list(bb.definitions.couplings_idx.keys())
         return available_coupling_names
         
+
+class ProteinSystem(BaseDataLoader):
+    def __init__(self, **kwargs):
+        super(ProteinSystem, self).__init__(**kwargs)
+        raise NotImplementedError("ProteinSystem class is not implemented yet.")
+
+
+class ProteinLigandSystem(BaseDataLoader):
+    def __init__(self, **kwargs):
+        super(ProteinLigandSystem, self).__init__(**kwargs)
+        raise NotImplementedError("ProteinLigandSystem class is not implemented yet.")
