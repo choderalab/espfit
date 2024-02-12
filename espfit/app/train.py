@@ -70,7 +70,7 @@ class EspalomaModel(object):
         self.dataset_validation = dataset_validation
         self.dataset_test = dataset_test
         self.random_seed = random_seed
-        self.config = None   # TODO: Better way to handle this?
+        self.config = config
         if output_directory_path is None:
             import os
             self.output_directory_path = os.getcwd()
@@ -103,12 +103,7 @@ class EspalomaModel(object):
         except FileNotFoundError as e:
             print(e)
             raise
-        #model = cls.create_model(config['espaloma'])
-        
-        # TODO: Better way to handle this?
-        #model = cls(model)
-        #model.config = config
-        
+
         model = cls()
         net = model.create_model(config['espaloma'])
         model.net = net
@@ -234,6 +229,43 @@ class EspalomaModel(object):
             restart_epoch = 0
         
         return restart_epoch
+
+
+    def _get_train_parameters(self, output_directory_path):
+        import os
+        import torch
+
+        if torch.cuda.is_available():
+            _logger.info('GPU is available for training.')
+        else:
+            _logger.info('GPU is not available for training.')
+
+        # Check if training dataset is provided
+        if self.dataset_train is None:
+            raise ValueError('Training dataset is not provided.')
+        
+        # Espaloma settings for training
+        config = self.config['espaloma']['train']
+        epochs = config.get('epochs', epochs)
+        batch_size = config.get('batch_size', batch_size)
+        learning_rate = config.get('learning_rate', learning_rate)
+        checkpoint_frequency = config.get('checkpoint_frequency', checkpoint_frequency)
+        if output_directory_path is not None:
+            self.output_directory_path = output_directory_path
+            # Create output directory if not exists
+            os.makedirs(output_directory_path, exist_ok=True)
+
+        # Restart from checkpoint if exists
+        restart_epoch = self._restart_checkpoint(output_directory_path)
+        if restart_epoch >= epochs:
+            _logger.info(f'Already trained for {epochs} epochs.')
+            return
+        elif restart_epoch > 0:
+            _logger.info(f'Training for additional {epochs-restart_epoch} epochs.')
+        else:
+            _logger.info(f'Training from scratch for {epochs} epochs.')
+
+        return restart_epoch, epochs, batch_size, learning_rate, checkpoint_frequency
     
 
     def train(self, epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_directory_path=None):
@@ -267,48 +299,14 @@ class EspalomaModel(object):
         """
         import os
         import torch
-        from pathlib import Path
+        from espfit.utils.units import HARTREE_TO_KCALPERMOL
 
-        if torch.cuda.is_available():
-            _logger.info('GPU is available for training.')
-
-            # Change default device to GPU if available
-            # Will this map all data onto GPU and cause memory error if the data is too large?
-            # https://pytorch.org/tutorials/recipes/recipes/changing_default_device.html
-
-            #torch.set_default_device('cuda')
-        else:
-            _logger.info('GPU is not available for training.')
-
-        # Check if training dataset is provided
-        if self.dataset_train is None:
-            raise ValueError('Training dataset is not provided.')
-        
-        # Espaloma settings for training
-        config = self.config['espaloma']['train']
-        epochs = config.get('epochs', epochs)
-        batch_size = config.get('batch_size', batch_size)
-        learning_rate = config.get('learning_rate', learning_rate)
-        checkpoint_frequency = config.get('checkpoint_frequency', checkpoint_frequency)
-        if output_directory_path is not None:
-            self.output_directory_path = output_directory_path
-            # Create output directory if not exists
-            os.makedirs(output_directory_path, exist_ok=True)
-
-        # Restart from checkpoint if exists
-        restart_epoch = self._restart_checkpoint(output_directory_path)
-        if restart_epoch >= epochs:
-            _logger.info(f'Already trained for {epochs} epochs.')
-            return
-        elif restart_epoch > 0:
-            _logger.info(f'Training for additional {epochs-restart_epoch} epochs.')
-        else:
-            _logger.info(f'Training from scratch for {epochs} epochs.')
+        # Get training parameters
+        restart_epoch, epochs, batch_size, learning_rate, checkpoint_frequency = self._get_train_parameters(epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_directory_path)
 
         # Train
         # https://github.com/choderalab/espaloma/blob/main/espaloma/app/train.py#L33
         # https://github.com/choderalab/espaloma/blob/main/espaloma/data/dataset.py#L310            
-        from espfit.utils.units import HARTEE_TO_KCALPERMOL
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
         with torch.autograd.set_detect_anomaly(True):
@@ -332,7 +330,94 @@ class EspalomaModel(object):
                     _logger.info(f'epoch {epoch}: {_loss:.3f}')
                     checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
                     torch.save(self.net.state_dict(), checkpoint_file)
+    
 
+    def train_reweight(self, epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_directory_path=None, 
+                       system_type='RNA', neff_threshold=0.2, filename=None, maxIterations=10, nsteps=10):
+        import os
+        import torch
+        from espfit.utils.units import HARTREE_TO_KCALPERMOL
+        from espfit.app.sampler import SetupSampler
+
+        if system_type == 'RNA':
+            from espfit.app.experiment import RNASystem
+        else:
+            raise NotImplementedError("Only RNA system is supported at the moment.")
+
+        # Get training parameters
+        restart_epoch, epochs, batch_size, learning_rate, checkpoint_frequency = self._get_train_parameters(epochs=1000, batch_size=128, learning_rate=1e-4, checkpoint_frequency=10, output_directory_path)
+
+        # Run MD simulation
+        if restart_epoch == 0:
+            _logger.info('Running MD simulation for the first time.')
+            sampler = SetupSampler()
+            sampler.create_system(biopolymer_file=filename)
+            sampler.minimize(maxIterations)
+            sampler.run(nsteps)
+            
+            sampler_output_directory_path = os.path.join(output_directory_path, "md", restart_epoch)
+            sampler.export_xml(output_directory_path=sampler_output_directory_path)
+
+            # Bookkeep last output directory
+            old_sampler_output_directory_path = sampler_output_directory_path
+
+            target = RNASystem()
+            target.load_traj(input_directory_path=sampler_output_directory_path)
+            obs = target.compute_jcouplings()
+            _logger.info(f'Computed observable: {obs}')
+
+        # Train
+        ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=batch_size, shuffle=True)
+        optimizer = torch.optim.Adam(self.net.parameters(), lr=learning_rate)
+        with torch.autograd.set_detect_anomaly(True):
+            for i in range(restart_epoch, epochs):
+                epoch = i + 1    # Start from epoch 1 (not zero-indexing)
+                for g in ds_tr_loader:
+                    optimizer.zero_grad()
+                    
+                    if torch.cuda.is_available():
+                        g = g.to("cuda:0")
+                    
+                    g.nodes["n1"].data["xyz"].requires_grad = True 
+
+                    # QC loss
+                    loss += self.net(g)
+
+
+                    # Compute MD loss                        
+                    neff = 0.5
+                    if neff < neff_threshold:
+                        # Re-run MD simulation
+                        sampler_output_directory_path = os.path.join(output_directory_path, "md", restart_epoch)
+                        sampler = SetupSampler.from_xml(input_directory_path=old_sampler_output_directory_path, output_directory_path=sampler_output_directory_path)
+                        sampler.minimize(maxIterations)
+                        sampler.run(nsteps)
+                        # Check if new observable is computed
+                        target = RNASystem()
+                        target.load_traj(input_directory_path=sampler_output_directory_path)
+                        obs = target.compute_jcouplings()
+                        # Update directory
+                        old_sampler_output_directory_path = sampler_output_directory_path
+                    else:
+                        pass
+
+
+                # Update weights
+                loss.backward()
+                optimizer.step()
+                
+                if epoch % checkpoint_frequency == 0:
+                    # Note: returned loss is a joint loss of different units.
+                    _loss = HARTEE_TO_KCALPERMOL * loss.pow(0.5).item()
+                    _logger.info(f'epoch {epoch}: {_loss:.3f}')
+                    checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
+                    torch.save(self.net.state_dict(), checkpoint_file)
+
+
+
+    def compute_md_loss(self, couplings):
+
+        pass
 
     def validate():
         raise NotImplementedError
