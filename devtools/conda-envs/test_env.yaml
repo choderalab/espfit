@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - openeye
 dependencies:
+  - python=3.11
   - espaloma=0.3.2
   - pdbfixer
   - ca-certificates

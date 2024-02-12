@@ -24,7 +24,7 @@ jobs:
         #os: [macOS-latest, ubuntu-latest, windows-latest]
         #python-version: [3.8, 3.9, "3.10"]
         os: [ubuntu-latest]
-        python-version: ["3.10"]
+        python-version: ["3.11"]
 
     steps:
       - uses: actions/checkout@v3
@@ -49,7 +49,7 @@ jobs:
         # conda setup requires this special shell
         shell: bash -l {0}
         run: |
-          micromamba remove --force openff-toolkit
+          micromamba remove --force openff-toolkit openff-toolkit-base
           pip install git+https://github.com/kntkb/openff-toolkit.git@7e9d0225782ef723083407a1cbf1f4f70631f934
           python -m pip install . --no-deps
           micromamba list
