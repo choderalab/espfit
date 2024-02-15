@@ -1,20 +1,13 @@
 # configuration for gnn
 [espaloma.gnn]
 method = "SAGEConv"
-aggregator_type = 'mean'
+aggregator_type = "mean"
 feat_drop = 0.1
 
 # configuration for stage 1 (gnn) & 2 (janossy pooling)
 [espaloma.nn]
 stage1 = [ 512, "relu", 0.1, 512, "relu", 0.1, 512, "relu", 0.1 ]   # (units, activation, dropout)
 stage2 = [ 512, "relu", 0.1, 512, "relu", 0.1, 512, "relu", 0.1, 512, "relu", 0.1 ]   # (units, activation, dropout)
-
-# training
-[espaloma.train]
-epochs = 20
-batch_size = 128
-learning_rate = 1e-4
-checkpoint_frequency = 10
 
 # loss weights
 [espaloma.weights]
@@ -23,3 +16,22 @@ force = 1.0
 charge = 1.0
 torsion = 1.0
 improper = 1.0
+
+# system setup parameters
+[sampler.setup]
+water_model = tip3p
+solvent_padding = 9.0 * angstroms
+ionic_strength = 0.15 * molar
+temperature = 300 * kelvin
+
+# sampler production
+[sampler.run]
+maxIterations = 100
+nsteps = 100
+checkpoint_frequency = 25000
+logging_frequency = 250000
+netcdf_frequency = 250000
+
+# reweighting settings
+[sampler.reweight]
+neff = 0.2
