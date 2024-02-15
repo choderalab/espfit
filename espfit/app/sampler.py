@@ -113,7 +113,7 @@ class BaseSimulation(object):
         -------
         None
         """
-        _logger.info(f"Minimizing system...")
+        _logger.info(f"Minimizing system for maximum {maxIterations} steps.")
         self.simulation.minimizeEnergy(maxIterations)
 
 
@@ -144,23 +144,18 @@ class BaseSimulation(object):
         -------
         None
         """
-        self.checkpoint_frequency = checkpoint_frequency
-        self.logging_frequency = logging_frequency
-        self.netcdf_frequency = netcdf_frequency
-        self.nsteps = nsteps
-        self.atom_indices = atom_indices
         if output_directory_path is not None:
             self.output_directory_path = output_directory_path  # property decorator is called
 
         # Select atoms to save
         import mdtraj
-        if self.atom_indices is None:
-            self.atom_indices = []
+        if atom_indices is None:
+            atom_indices = []
             mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
             res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
             for r in res:
                 for a in r.atoms:
-                    self.atom_indices.append(a.index)
+                    atom_indices.append(a.index)
        
         # Define reporter
         from mdtraj.reporters import NetCDFReporter
@@ -168,22 +163,22 @@ class BaseSimulation(object):
 
         self._check_file_exists("traj.nc")
         self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), 
-                                                        min(self.netcdf_frequency, self.nsteps), 
-                                                        atomSubset=self.atom_indices))
+                                                        min(netcdf_frequency, nsteps), 
+                                                        atomSubset=atom_indices))
         
         self._check_file_exists("checkpoint.chk")
         self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), 
-                                                            min(self.checkpoint_frequency, self.nsteps)))
+                                                            min(checkpoint_frequency, nsteps)))
         
         self._check_file_exists("reporter.log")
         self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), 
-                                                           min(self.logging_frequency, self.nsteps), 
+                                                           min(logging_frequency, nsteps), 
                                                            step=True, potentialEnergy=True, kineticEnergy=True, 
                                                            totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
         
         # Run
-        _logger.info(f"Run MD simulation for {self.nsteps} steps")
-        self.simulation.step(self.nsteps)
+        _logger.info(f"Run MD simulation for {nsteps} steps")
+        self.simulation.step(nsteps)
 
 
     def export_xml(self, exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
