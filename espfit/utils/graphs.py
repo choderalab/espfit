@@ -459,7 +459,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
-        _logger.info(f'Reshape graphs size')
+        _logger.info(f'Reshape graph size')
         
         import random
         import copy
@@ -473,13 +473,13 @@ class CustomGraphDataset(GraphDataset):
             n = g.nodes['n1'].data['xyz'].shape[1]
 
             if n == n_confs:
-                _logger.info(f"Molecule #{i} ({n} conformations)")
+                _logger.info(f"Mol #{i} ({n} conformations)")
                 new_graphs.append(g)
 
             elif n < n_confs:
                 random.seed(self.random_seed)
                 index_random = random.choices(range(0, n), k=n_confs-n)
-                _logger.info(f"Molecule #{i} ({n} conformations). Randomly select {len(index_random)} conformations")
+                _logger.info(f"Randomly select {len(index_random)} conformations from Mol #{i} ({n} conformations)")
 
                 _g = copy.deepcopy(g)
                 _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
@@ -488,7 +488,7 @@ class CustomGraphDataset(GraphDataset):
                 new_graphs.append(_g)
 
             else:
-                _logger.info(f"Molecule #{i} ({n} conformations). Shuffle indices and split data into chunks")
+                _logger.info(f"Shuffling Mol #{i} ({n} conformations) and splitting into {n_confs}")
                 random.seed(self.random_seed)
                 idx_range = random.sample(range(n), k=n)
                 for j in range(n // n_confs + 1):
