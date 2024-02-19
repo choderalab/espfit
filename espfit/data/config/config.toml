@@ -18,20 +18,21 @@ torsion = 1.0
 improper = 1.0
 
 # system setup parameters
-[sampler.setup]
-water_model = tip3p
-solvent_padding = 9.0 * angstroms
-ionic_strength = 0.15 * molar
-temperature = 300 * kelvin
+# Note: only target class/name and variables related to `openmm.unit` are supported
+[[sampler.setup]]
+target_class = "nucleoside"
+target_name = "cytidine"
+water_model = "tip3p"
+solvent_padding = "10.0 * angstroms"
+ionic_strength = "0.08 * molar"   # 80 mM NaCl
+temperature = "303.15 * kelvin"
 
-# sampler production
-[sampler.run]
-maxIterations = 100
-nsteps = 100
-checkpoint_frequency = 25000
-logging_frequency = 250000
-netcdf_frequency = 250000
-
-# reweighting settings
-[sampler.reweight]
-neff = 0.2
+# system setup parameters
+# Note: only target class/name and variables related to `openmm.unit` are supported
+[[sampler.setup]]
+target_class = "nucleoside"
+target_name = "cytidine"
+water_model = "tip3p"
+solvent_padding = "10.0 * angstroms"
+ionic_strength = "0.08 * molar"   # 80 mM NaCl
+temperature = "303.15 * kelvin"
