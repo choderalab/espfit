@@ -9,6 +9,7 @@ experiment_1:
     name: nmr
     concentration: 0.2 mM
     temperature: 303.15 * kelvin
+    reference: table S12
   comment: 
   sequence: a
   smiles:
