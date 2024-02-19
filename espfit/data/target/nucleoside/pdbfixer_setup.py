@@ -46,7 +46,8 @@ def prep(inputfile):
     # minimize: fix hydrogen positions
     simulation.minimizeEnergy(maxIterations=50)
     positions = simulation.context.getState(getPositions=True).getPositions()
-    PDBFile.writeFile(model.topology, positions, open("pdbfixer_min.pdb", 'w'))   
+    #PDBFile.writeFile(model.topology, positions, open("pdbfixer_min.pdb", 'w'))
+    PDBFile.writeFile(model.topology, positions, open("target.pdb", 'w'))
 
 
 @click.command()
