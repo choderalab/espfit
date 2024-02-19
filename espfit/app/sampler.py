@@ -29,20 +29,43 @@ class BaseSimulation(object):
 
     Methods
     -------
-    minimize(maxIterations=100):
+    minimize(output_directory_path=None):
         Minimize solvated system.
     
-    run(checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, nsteps=250000, atom_indices=None):
+    run(output_directory_path=None):
         Run standard MD simulation.
 
-    export_xml(exportSystem=True, exportState=True, exportIntegrator=True):
+    export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, output_directory_path=None, input_directory_path=None):
+    def __init__(self, maxIterations=100, nsteps=250000, atom_indices=None, neff_threshold=0.2, 
+                 checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, 
+                 output_directory_path=None, input_directory_path=None):
         """Initialize base simulation object.
         
         Parameters
         ----------
+        maxIterations : int, default=100
+            Maximum number of iterations to perform minimization.
+
+        nsteps : int, default=250000 (10 ns using 4 fs timestep)
+            Number of steps to run the simulation.
+
+        atom_indices : list, default=None
+            List of atom indices to save. If None, save all atoms except water and ions.
+
+        neff_threshold : float, default=0.2
+            Effective sample size threshold to rerun the simulation.
+
+        checkpoint_frequency : int, default=25000 (1 ns)
+            Frequency (in steps) at which to write checkpoint files.
+
+        logging_frequency : int, default=250000 (10 ns)
+            Frequency (in steps) at which to write logging files.
+
+        netcdf_frequency : int, default=250000 (10 ns)
+            Frequency (in steps) at which to write netcdf files.
+
         output_directory_path : str, optional
             Output directory path. Default is None.
             If None, the current working directory will be used.
@@ -51,6 +74,14 @@ class BaseSimulation(object):
             Input directory path to restart simulation. Default is None.
             If None, the current working directory will be used.
         """
+        self.maxIterations = maxIterations
+        self.nsteps = nsteps
+        self.atom_indices = atom_indices
+        self.neff_threshold = neff_threshold
+        self.checkpoint_frequency = checkpoint_frequency
+        self.logging_frequency = logging_frequency
+        self.netcdf_frequency = netcdf_frequency
+
         if output_directory_path is None:
             output_directory_path = os.getcwd()  # Is this right?
         if input_directory_path is None:
@@ -101,42 +132,29 @@ class BaseSimulation(object):
         return platform
     
 
-    def minimize(self, maxIterations=100):
+    def minimize(self, output_directory_path=None):
         """Minimize solvated system.
 
-        Parameters
-        ----------
-        maxIterations : int, default=100
-            Maximum number of iterations to perform.
+        output_directory_path : str, default=None
+            The path to the output directory. If None, the default output directory is used.
 
         Returns
         -------
         None
         """
-        _logger.info(f"Minimizing system for maximum {maxIterations} steps.")
-        self.simulation.minimizeEnergy(maxIterations)
+
+        if output_directory_path is not None:
+            self.output_directory_path = output_directory_path  # property decorator is called
+
+        _logger.info(f"Minimizing system for maximum {self.maxIterations} steps.")
+        self.simulation.minimizeEnergy(self.maxIterations)
 
 
-    def run(self, checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, nsteps=250000, atom_indices=None, output_directory_path=None):
+    def run(self, output_directory_path=None):
         """Run standard MD simulation.
 
         Parameters
         ----------
-        checkpoint_frequency : int, default=25000 (1 ns)
-            Frequency (in steps) at which to write checkpoint files.
-
-        logging_frequency : int, default=250000 (10 ns)
-            Frequency (in steps) at which to write logging files.
-
-        netcdf_frequency : int, default=250000 (10 ns)
-            Frequency (in steps) at which to write netcdf files.
-
-        nsteps : int, default=250000 (10 ns)
-            Number of steps to run the simulation.
-
-        atom_indices : list, default=None
-            List of atom indices to save. If None, save all atoms except water and ions.
-
         output_directory_path : str, default=None
             The path to the output directory. If None, the default output directory is used.
 
@@ -149,13 +167,13 @@ class BaseSimulation(object):
 
         # Select atoms to save
         import mdtraj
-        if atom_indices is None:
-            atom_indices = []
+        if self.atom_indices is None:
+            self.atom_indices = []
             mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
             res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
             for r in res:
                 for a in r.atoms:
-                    atom_indices.append(a.index)
+                    self.atom_indices.append(a.index)
        
         # Define reporter
         from mdtraj.reporters import NetCDFReporter
@@ -163,22 +181,22 @@ class BaseSimulation(object):
 
         self._check_file_exists("traj.nc")
         self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), 
-                                                        min(netcdf_frequency, nsteps), 
-                                                        atomSubset=atom_indices))
+                                                        min(self.netcdf_frequency, self.nsteps), 
+                                                        atomSubset=self.atom_indices))
         
         self._check_file_exists("checkpoint.chk")
         self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), 
-                                                            min(checkpoint_frequency, nsteps)))
+                                                            min(self.checkpoint_frequency, self.nsteps)))
         
         self._check_file_exists("reporter.log")
         self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), 
-                                                           min(logging_frequency, nsteps), 
+                                                           min(self.logging_frequency, self.nsteps), 
                                                            step=True, potentialEnergy=True, kineticEnergy=True, 
                                                            totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
         
         # Run
-        _logger.info(f"Run MD simulation for {nsteps} steps")
-        self.simulation.step(nsteps)
+        _logger.info(f"Run MD simulation for {self.nsteps} steps")
+        self.simulation.step(self.nsteps)
 
 
     def export_xml(self, exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
@@ -296,8 +314,10 @@ class SetupSampler(BaseSimulation):
     >>> from espfit.app.sampler import SetupSampler
     >>> c = SetupSampler()
     >>> c.create_system(biopolymer_file='protein.pdb', ligand_file='ligand.sdf')
-    >>> c.minimize(maxIterations=10)
-    >>> c.run(nsteps=10)
+    >>> c.maxIterations = 10   # change default setting
+    >>> c.minimize()
+    >>> c.nsteps = 100         # change default setting
+    >>> c.run()
 
     Notes
     -----
@@ -374,6 +394,61 @@ class SetupSampler(BaseSimulation):
         self.barostat_period = barostat_period
         self.timestep = timestep
         self.override_with_espaloma = override_with_espaloma
+        self.target_class = None
+        self.target_name = None
+
+
+    @classmethod
+    def from_toml(cls, filename):
+        import tomllib
+        from espfit.utils.units import convert_string_to_unit
+        from importlib.resources import files
+
+        try:
+            with open(filename, 'rb') as f:
+                config = tomllib.load(f)
+        except FileNotFoundError as e:
+            print(e)
+            raise
+        
+        config = config['sampler']['setup']  # list
+        if config is None:
+            raise ValueError("target is not specified in the configuration file")
+        
+        systems = []
+        _logger.info(f'Found {len(config)} systems in the configuration file')
+        for _config in config:
+            system = cls()
+            # Target information
+            target_class = _config['target_class']
+            target_name = _config['target_name']
+
+            system.target_class = target_class
+            system.target_name = target_name
+
+            biopolymer_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/target.pdb')
+            ligand_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/ligand.sdf')
+            if not ligand_file.exists():
+                ligand_file = None
+
+            # System settings
+            for key, value in _config.items():
+                if key not in ['target_class', 'target_name']:
+                    if "*" in value:
+                        _value = float(value.split('*')[0].strip())
+                        unit_string = value.split('*')[1].strip()
+                        unit_mapping = convert_string_to_unit(unit_string)
+                        value = _value * unit_mapping
+                    
+                    # All key should be instance variable of the class
+                    setattr(system, key, value)
+
+            # Create system
+            system.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)
+            systems.append(system)
+            del system
+        
+        return systems
 
 
     def _update_forcefield_files(self, forcefield_files):
@@ -486,7 +561,7 @@ class SetupSampler(BaseSimulation):
        
         return complex_topology, complex_positions
     
-        
+    
     def create_system(self, biopolymer_file=None, ligand_file=None):
         """Create biopolymer-ligand system and export serialized system XML file and solvated pdb file.
 
