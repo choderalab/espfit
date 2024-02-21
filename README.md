@@ -28,10 +28,26 @@ Infrastruture to train espaloma with experimental observables
 
 
 ### Quick Usage
+```python
+from espfit.utils.graphs import CustomGraphDataset  
+path = 'espfit/data/qcdata/openff-toolkit-0.10.6/dgl2/protein-torsion-sm/'
+ds = CustomGraphDataset.load(path)
+ds.reshape_conformation_size(n_confs=50)
+ds.compute_relative_energy()
+# Create esplama model
+from espfit.app.train import EspalomaModel
+filename = 'espfit/data/config/config.toml'
+model = EspalomaModel.from_toml(filename)
+model.dataset_train = ds
+# Change default training settings
+model.epochs = 100
+# Set sampler settings
+model.train_sampler(sampler_patience=800, neff_threshold=0.2)
+```
 
+### Standalone Usage
 #### Change logging
 ```python
-# load dgl graph data
 from espfit.utils import logging
 logging.get_logging_level()
 #>'INFO'
@@ -51,12 +67,11 @@ from espfit.app.train import EspalomaModel
 filename = 'espfit/data/config/config.toml'
 model = EspalomaModel.from_toml(filename)
 model.dataset_train = ds
-# Train
-model.train(output_directory_path='path/to/output')
-# To extend training, update the `epoch` in config.toml
-# Alternatively, do the following:
-model.config['espaloma']['train']['epochs'] = 50
-model.train(output_directory_path='path/to/output')
+# Change default training settings
+model.epochs = 100
+model.output_directory_path = 'path/to/output'
+# Train (default output directory is current path)
+model.train()
 ```
 
 #### Standard MD (default: espaloma-0.3.2 force field for solute molecules)
@@ -66,8 +81,10 @@ from espfit.app.sampler import SetupSampler
 c = SetupSampler()
 filename = 'espfit/data/target/testsystems/nucleoside/pdbfixer_min.pdb'
 c.create_system(biopolymer_file=filename)
-c.minimize(maxIterations=10)
-c.run(nsteps=10, output_directory_path='path/to/output')
+c.minimize()
+# Change default settings
+c.nsteps = 1000
+c.run()
 # Export to XML
 c.export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path='path/to/output')
 ```
@@ -76,7 +93,8 @@ c.export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_
 ```python
 from espfit.app.sampler import SetupSampler
 c = SetupSampler.from_xml(input_directory_path='path/to/input')
-c.run(nsteps=10, output_directory_path='path/to/output')
+c.nsteps = 1000
+c.run()
 ```
 
 #### Compute RNA J-couplings from MD trajectory
