@@ -38,7 +38,7 @@ class SamplerReweight(SetupSampler, BaseSimulation):
     def compute_loss(self):
         # Compute experimental observable
         obs_calc = self._compute_observable()
-        _logger.info(f'Computed observable: {obs_calc}')
+        _logger.info(f'Compute loss')
 
         # Compute loss
         import torch

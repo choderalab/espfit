@@ -399,10 +399,27 @@ class SetupSampler(BaseSimulation):
 
 
     @classmethod
-    def from_toml(cls, filename, *epoch, **override_sampler_kwargs):
+    def from_toml(cls, filename, *args, **override_sampler_kwargs):
+        """Create SetupSampler from a TOML configuration file.
+        
+        Parameters
+        ----------
+        filename : str
+            The path to the TOML configuration file.
 
-        # kwargs: force setting updates for SetupSampler and BaseSimulation
-                    
+        *args : list
+            This is used to update the output directory path during espaloma training.
+            The list should contain a single integer value, corresponding to the epoch number.
+            
+        **override_sampler_kwargs : dict
+            The dictionary of keyword arguments to override the default settings of the 
+            BaseSimulation and SetupSampler classes. This option is intended for creating
+            new systems with temporary espaloma models generated during espaloma training.
+
+        Returns
+        -------
+        samplers : list of SetupSampler instances
+        """                    
         import tomllib
         from espfit.utils.units import convert_string_to_unit
         from importlib.resources import files
@@ -438,25 +455,31 @@ class SetupSampler(BaseSimulation):
             # System settings
             for key, value in _config.items():
                 if key not in ['target_class', 'target_name']:
-                    if isinstance(value, str) and "*" in value:
-                        _value = float(value.split('*')[0].strip())
-                        unit_string = value.split('*')[1].strip()
-                        unit_mapping = convert_string_to_unit(unit_string)
-                        value = _value * unit_mapping
-                    # All key should be instance variable of the class
-                    setattr(sampler, key, value)
+                    if hasattr(sampler, key):
+                        if isinstance(value, str) and "*" in value:
+                            _value = float(value.split('*')[0].strip())
+                            unit_string = value.split('*')[1].strip()
+                            unit_mapping = convert_string_to_unit(unit_string)
+                            value = _value * unit_mapping                        
+                        setattr(sampler, key, value)
+                    else:
+                        raise ValueError(f"Invalid keyword argument: {key}")
             
-            # Override system settings by kwargs
+            # Expected kwargs: output_directory_path
+            # Pass temporary espaloma model to the sampler if kwargs are given
             for key, value in override_sampler_kwargs.items():
-                setattr(sampler, key, value)
+                if hasattr(sampler, key):
+                    setattr(sampler, key, value)
+                else:
+                    raise ValueError(f"Invalid keyword argument: {key}")
 
             # Update output directory path if epoch is given
-            if epoch is not None:
-                if len(epoch) == 1 and isinstance(epoch[0], int):
-                    sampler.output_directory_path = os.path.join(sampler.output_directory_path, f'{epoch[0]}')
+            if args is not None:
+                if len(args) == 1 and isinstance(args[0], int):
+                    sampler.output_directory_path = os.path.join(sampler.output_directory_path, sampler.target_name, f'{args[0]}')
                 else:
-                    raise ValueError("epoch should be a single value or a list of a single value")
-
+                    raise ValueError(f"Invalid argument: {args}. Expected a single integer value for the epoch number.")
+            
             # Create system
             sampler.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)            
             samplers.append(sampler)

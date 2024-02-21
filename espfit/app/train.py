@@ -375,8 +375,11 @@ class EspalomaModel(object):
                             _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')                        
                         
                         # Create sampler system from configuration file. Returns list of systems.
-                        override_sampler_kwargs = { "small_molecule_forcefield": "espfit/data/forcefield/espaloma-0.3.2.pt" }  # change this to local espaloma model
-                        samplers = SamplerReweight.from_toml(self.configfile, epoch, override_sampler_kwargs)
+                        args = [epoch]
+                        override_sampler_kwargs = { 
+                            "small_molecule_forcefield": "espfit/data/forcefield/espaloma-0.3.2.pt", # change this to local espaloma model
+                            "output_directory_path": self.output_directory_path }
+                        samplers = SamplerReweight.from_toml(self.configfile, *args, **override_sampler_kwargs)
                         for sampler in samplers:
                             _logger.info(f'Running simulation for {sampler.target_name} for {sampler.nsteps} steps...')
                             sampler.minimize()
