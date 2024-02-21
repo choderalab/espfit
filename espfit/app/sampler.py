@@ -335,12 +335,12 @@ class SetupSampler(BaseSimulation):
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
                  ionic_strength=0.15 * unit.molar, 
-                 constraints=app.HBonds, 
+                 #constraints=app.HBonds, 
                  hmass=3.0 * unit.amu, 
                  temperature=300.0 * unit.kelvin, 
                  pressure=1.0 * unit.atmosphere, 
                  pme_tol=2.5e-04, 
-                 nonbonded_method=app.PME, 
+                 #nonbonded_method=app.PME, 
                  barostat_period=50, 
                  timestep=4 * unit.femtoseconds, 
                  override_with_espaloma=True,
@@ -385,12 +385,12 @@ class SetupSampler(BaseSimulation):
         self.forcefield_files = self._update_forcefield_files(forcefield_files)
         self.solvent_padding = solvent_padding
         self.ionic_strength = ionic_strength
-        self.constraints = constraints
+        #self.constraints = constraints
         self.hmass = hmass
         self.temperature = temperature
         self.pressure = pressure
         self.pme_tol = pme_tol
-        self.nonbonded_method = nonbonded_method
+        #self.nonbonded_method = nonbonded_method
         self.barostat_period = barostat_period
         self.timestep = timestep
         self.override_with_espaloma = override_with_espaloma
@@ -399,7 +399,10 @@ class SetupSampler(BaseSimulation):
 
 
     @classmethod
-    def from_toml(cls, filename):
+    def from_toml(cls, filename, *epoch, **override_sampler_kwargs):
+
+        # kwargs: force setting updates for SetupSampler and BaseSimulation
+                    
         import tomllib
         from espfit.utils.units import convert_string_to_unit
         from importlib.resources import files
@@ -415,16 +418,17 @@ class SetupSampler(BaseSimulation):
         if config is None:
             raise ValueError("target is not specified in the configuration file")
         
-        systems = []
+        samplers = []
         _logger.info(f'Found {len(config)} systems in the configuration file')
         for _config in config:
-            system = cls()
+            sampler = cls()
+
             # Target information
             target_class = _config['target_class']
             target_name = _config['target_name']
 
-            system.target_class = target_class
-            system.target_name = target_name
+            sampler.target_class = target_class
+            sampler.target_name = target_name
 
             biopolymer_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/target.pdb')
             ligand_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/ligand.sdf')
@@ -434,21 +438,31 @@ class SetupSampler(BaseSimulation):
             # System settings
             for key, value in _config.items():
                 if key not in ['target_class', 'target_name']:
-                    if "*" in value:
+                    if isinstance(value, str) and "*" in value:
                         _value = float(value.split('*')[0].strip())
                         unit_string = value.split('*')[1].strip()
                         unit_mapping = convert_string_to_unit(unit_string)
                         value = _value * unit_mapping
-                    
                     # All key should be instance variable of the class
-                    setattr(system, key, value)
+                    setattr(sampler, key, value)
+            
+            # Override system settings by kwargs
+            for key, value in override_sampler_kwargs.items():
+                setattr(sampler, key, value)
+
+            # Update output directory path if epoch is given
+            if epoch is not None:
+                if len(epoch) == 1 and isinstance(epoch[0], int):
+                    sampler.output_directory_path = os.path.join(sampler.output_directory_path, f'{epoch[0]}')
+                else:
+                    raise ValueError("epoch should be a single value or a list of a single value")
 
             # Create system
-            system.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)
-            systems.append(system)
-            del system
+            sampler.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)            
+            samplers.append(sampler)
+            del sampler
         
-        return systems
+        return samplers
 
 
     def _update_forcefield_files(self, forcefield_files):
@@ -601,8 +615,10 @@ class SetupSampler(BaseSimulation):
 
         # Initialize system generator.
         _logger.debug("Initialize system generator")
-        forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : self.constraints, 'rigidWater': True, 'hydrogenMass' : self.hmass}
-        periodic_forcefield_kwargs = {'nonbondedMethod': self.nonbonded_method}
+        #forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : self.constraints, 'rigidWater': True, 'hydrogenMass' : self.hmass}
+        #periodic_forcefield_kwargs = {'nonbondedMethod': self.nonbonded_method}
+        forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : app.HBonds, 'rigidWater': True, 'hydrogenMass' : self.hmass}
+        periodic_forcefield_kwargs = {'nonbondedMethod': app.PME}
         barostat = MonteCarloBarostat(self.pressure, self.temperature, self.barostat_period)
 
         # SystemGenerator will automatically load the TemplateGenerator based on the given `small_molecule_forcefield`.
