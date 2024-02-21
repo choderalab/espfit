@@ -17,7 +17,16 @@ charge = 1.0
 torsion = 1.0
 improper = 1.0
 
-# system setup parameters
+# training settings
+[espaloma.train]
+epochs = 10
+batch_size = 128
+learning_rate = 1e-4
+checkpoint_frequency = 1
+output_directory_path = "checkpoints"
+
+
+# System setup parameters
 # Note: only target class/name and variables related to `openmm.unit` are supported
 [[sampler.setup]]
 target_class = "nucleoside"
@@ -26,13 +35,28 @@ water_model = "tip3p"
 solvent_padding = "10.0 * angstroms"
 ionic_strength = "0.08 * molar"   # 80 mM NaCl
 temperature = "303.15 * kelvin"
+maxIterations = 100
+nsteps = 1000
+neff_threshold = 0.2
+checkpoint_frequency = 10
+logging_frequency = 1
+netcdf_frequency = 10
+weight = 1
+
 
 # system setup parameters
 # Note: only target class/name and variables related to `openmm.unit` are supported
 [[sampler.setup]]
 target_class = "nucleoside"
-target_name = "cytidine"
+target_name = "adenosine"
 water_model = "tip3p"
 solvent_padding = "10.0 * angstroms"
 ionic_strength = "0.08 * molar"   # 80 mM NaCl
 temperature = "303.15 * kelvin"
+maxIterations = 100
+nsteps = 1000
+neff_threshold = 0.2
+checkpoint_frequency = 10
+logging_frequency = 1
+netcdf_frequency = 10
+weight = 1
