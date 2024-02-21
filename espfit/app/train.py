@@ -8,6 +8,7 @@ TODO
 * Add support to save model? (or use independent script?)
 * Improve how data are parsed using dataclasses or pydantic
 """
+import os
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -76,8 +77,6 @@ class EspalomaModel(object):
         checkpoint_frequency : int, default=10
             The frequency at which the model should be saved.
         """
-        import os
-        import torch
         self.dataset_train = dataset_train
         self.dataset_validation = dataset_validation
         self.dataset_test = dataset_test
@@ -87,12 +86,14 @@ class EspalomaModel(object):
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.checkpoint_frequency = checkpoint_frequency
+        self.restart_epoch = 0
+        self.configfile = None
         if output_directory_path is None:
-            self.output_directory_path = os.getcwd()
-        else:
-            self.output_directory_path = output_directory_path
-        
+            output_directory_path = os.getcwd()
+        self.output_directory_path = output_directory_path
+
         # Check if GPU is available
+        import torch
         if torch.cuda.is_available():
             _logger.info('GPU is available for training.')
         else:
@@ -100,6 +101,20 @@ class EspalomaModel(object):
 
         # Check torch data type
         _logger.info(f'Torch data type is {torch.get_default_dtype()}')
+
+
+    @property
+    def output_directory_path(self):
+        """Get output directory path."""
+        return self._output_directory_path
+
+
+    @output_directory_path.setter
+    def output_directory_path(self, value):
+        """Set output directory path."""
+        self._output_directory_path = value
+        # Create output directory if it does not exist
+        os.makedirs(value, exist_ok=True)
 
 
     @classmethod
@@ -133,6 +148,11 @@ class EspalomaModel(object):
         model = cls()
         net = model.create_model(config['espaloma'])
         model.net = net
+        model.configfile = filename
+
+        # Update training settings
+        for key, value in config['espaloma']['train'].items():
+            setattr(model, key, value)
 
         return model
 
@@ -195,7 +215,7 @@ class EspalomaModel(object):
         readout_improper = esp.nn.readout.janossy.JanossyPoolingWithSmirnoffImproper(in_features=units, config=config_2, out_features={"k": 2})
 
         # Get loss weights
-        # TODO: Better way to handle this?
+        # TODO: Better way to initialize weights?
         weights = { 'energy': 1.0, 'force': 1.0, 'charge': 1.0, 'torsion': 1.0, 'improper': 1.0 }
         if 'weights' in espaloma_config.keys():
             for key in espaloma_config['weights'].keys():
@@ -260,14 +280,13 @@ class EspalomaModel(object):
         return restart_epoch
 
 
-    def train(self, output_directory_path=None):
+    def train(self):
         """
         Train the Espaloma network model.
 
-        Parameters
-        ----------
-        output_directory_path : str, default=None
-            The directory where the model checkpoints should be saved. If None, the default output directory is used.
+        TODO
+        ----
+        * Export training settings to a file?
 
         Returns
         -------
@@ -279,13 +298,9 @@ class EspalomaModel(object):
 
         if self.dataset_train is None:
             raise ValueError('Training dataset is not provided.')
-
-        if output_directory_path is not None:
-            self.output_directory_path = output_directory_path
-            os.makedirs(self.output_directory_path, exist_ok=True)
-
+        
         # Load checkpoint
-        restart_epoch = self._load_checkpoint()
+        self.restart_epoch = self._load_checkpoint()
 
         # Train
         # https://github.com/choderalab/espaloma/blob/main/espaloma/app/train.py#L33
@@ -293,15 +308,13 @@ class EspalomaModel(object):
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
-            for i in range(restart_epoch, self.epochs):
+            for i in range(self.restart_epoch, self.epochs):
                 epoch = i + 1    # Start from epoch 1 (not zero-indexing)
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
-                    
                     # TODO: Better way to handle this?
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
-                    
                     g.nodes["n1"].data["xyz"].requires_grad = True 
                     loss = self.net(g)
                     loss.backward()
@@ -311,36 +324,27 @@ class EspalomaModel(object):
                     # Note: returned loss is a joint loss of different units.
                     _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
                     _logger.info(f'epoch {epoch}: {_loss:.3f}')
-                    checkpoint_file = os.path.join(output_directory_path, f"net{epoch}.pt")
+                    checkpoint_file = os.path.join(self.output_directory_path, f"net{epoch}.pt")
                     torch.save(self.net.state_dict(), checkpoint_file)
     
     
-    def train_sampler(self, output_directory_path=None, 
-                      biopolymer_file=None, ligand_file=None, small_molecule_forcefield=None,
-                      sampler_patience=800, maxIterations=10, nsteps=10, neff_threshold=0.2):
+    def train_sampler(self, sampler_patience=800, neff_threshold=0.2):
+
+        # sampler_kwargs: attributes supported by BaseSimulation
+
         import os
         import torch
         from espfit.utils.units import HARTREE_TO_KCALPERMOL
-        from espfit.utils.sampler import module
+        from espfit.utils.sampler.reweight import SamplerReweight
 
-        # Parameters for sampling and reweighting
-        self.biopolymer_file = biopolymer_file
-        self.ligand_file = ligand_file
         self.sampler_patience = sampler_patience
-        self.maxIterations = maxIterations
-        self.nsteps = nsteps
         self.neff_threshold = neff_threshold
-        self.small_molecule_forcefield = small_molecule_forcefield
 
         if self.dataset_train is None:
             raise ValueError('Training dataset is not provided.')
 
-        if output_directory_path is not None:
-            self.output_directory_path = output_directory_path
-            os.makedirs(self.output_directory_path, exist_ok=True)
-
         # Load checkpoint
-        restart_epoch = self._load_checkpoint()
+        self.restart_epoch = self._load_checkpoint()
 
         # Initialize neff to -1 to trigger the first sampling
         neff = -1
@@ -349,33 +353,39 @@ class EspalomaModel(object):
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
-            for i in range(restart_epoch, self.epochs):
-                epoch = i + 1    # Start from epoch 1 (not zero-indexing)
+            for i in range(self.restart_epoch, self.epochs):
+                epoch = i + 1    # Start from 1 (not zero-indexing)
                 loss = torch.tensor(0.0)
+                if torch.cuda.is_available():
+                    loss = loss.cuda("cuda:0")
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
-
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
-
                     g.nodes["n1"].data["xyz"].requires_grad = True 
                     loss += self.net(g)
 
                 # Run sampling
                 if epoch > self.sampler_patience:
                     if neff < self.neff_threshold:
-                        _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')
-                        # Create system and run sampling, instead of restarting from previous checkpoint
-                        _logger.info(f'Run simulation...')
-                        sampler_output_directory_path = os.path.join(self.output_directory_path, "sampler", str(epoch))
-                        module.run_sampler(sampler_output_directory_path, self.biopolymer_file, self.ligand_file, self.maxIterations, self.nsteps, self.small_molecule_forcefield)
+                        # Get Effective sample size
+                        if neff < 0:
+                            _logger.info(f'Reached sampler patience {self.sampler_patience}. Run sampler for the first time.')                        
+                        else:
+                            _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')                        
+                        
+                        # Create sampler system from configuration file. Returns list of systems.
+                        override_sampler_kwargs = { "small_molecule_forcefield": "espfit/data/forcefield/espaloma-0.3.2.pt" }  # change this to local espaloma model
+                        samplers = SamplerReweight.from_toml(self.configfile, epoch, override_sampler_kwargs)
+                        for sampler in samplers:
+                            _logger.info(f'Running simulation for {sampler.target_name} for {sampler.nsteps} steps...')
+                            sampler.minimize()
+                            sampler.run()
 
                     # Compute MD loss
                     _logger.info(f'Compute sampler loss.')
-                    sampler_loss = module.compute_loss(input_directory_path=sampler_output_directory_path)
-
-                    # Add MD loss to the joint loss
-                    loss += sampler_loss
+                    for sampler in samplers:
+                        loss += sampler.compute_loss() * sampler.weight
 
                 # Update weights
                 loss.backward()
