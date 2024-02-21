@@ -27,7 +27,6 @@ output_directory_path = "checkpoints"
 
 
 # System setup parameters
-# Note: only target class/name and variables related to `openmm.unit` are supported
 [[sampler.setup]]
 target_class = "nucleoside"
 target_name = "cytidine"
@@ -45,7 +44,6 @@ weight = 1
 
 
 # system setup parameters
-# Note: only target class/name and variables related to `openmm.unit` are supported
 [[sampler.setup]]
 target_class = "nucleoside"
 target_name = "adenosine"
