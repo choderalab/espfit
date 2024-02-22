@@ -329,9 +329,15 @@ class EspalomaModel(object):
     
     
     def train_sampler(self, sampler_patience=800, neff_threshold=0.2):
+        """
+        Train the Espaloma network model with sampler.
 
-        # sampler_kwargs: attributes supported by BaseSimulation
+        TODO
+        ----
+        * Should `nsteps` be a variable when calling train_sampler?
+        * Should `sampler_patience` and `neff_threshold` be an instance variable of sampler.BaseSimulation?
 
+        """
         import os
         import torch
         from espfit.utils.units import HARTREE_TO_KCALPERMOL
@@ -378,7 +384,8 @@ class EspalomaModel(object):
                         args = [epoch]
                         override_sampler_kwargs = { 
                             "small_molecule_forcefield": "espfit/data/forcefield/espaloma-0.3.2.pt", # change this to local espaloma model
-                            "output_directory_path": self.output_directory_path }
+                            "output_directory_path": self.output_directory_path 
+                            }
                         samplers = SamplerReweight.from_toml(self.configfile, *args, **override_sampler_kwargs)
                         for sampler in samplers:
                             _logger.info(f'Running simulation for {sampler.target_name} for {sampler.nsteps} steps...')

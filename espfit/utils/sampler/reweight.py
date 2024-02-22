@@ -23,21 +23,21 @@ class SamplerReweight(SetupSampler, BaseSimulation):
             from espfit.app.analysis import RNASystem
             target = RNASystem()
             target.load_traj(input_directory_path=self.output_directory_path)
-            obs_calc = target.compute_jcouplings()
-            _logger.info(f'Computed observable: {obs_calc}')
+            val = target.compute_jcouplings()
+            _logger.info(f'Computed observable: {val}')
         else:
             raise NotImplementedError(f'Observable for {self.target_class} is not implemented.')
 
         import yaml
-        with open(os.path.join(self.output_directory_path, 'observable.yaml'), 'w') as f:
-            yaml.dump(obs_calc, f, allow_unicode=True)
+        with open(os.path.join(self.output_directory_path, 'pred.yaml'), 'w') as f:
+            yaml.dump(val, f, allow_unicode=True)
 
-        return obs_calc
+        return val
 
 
     def compute_loss(self):
         # Compute experimental observable
-        obs_calc = self._compute_observable()
+        val = self._compute_observable()
         _logger.info(f'Compute loss')
 
         # Compute loss

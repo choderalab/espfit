@@ -38,7 +38,7 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, maxIterations=100, nsteps=250000, atom_indices=None, neff_threshold=0.2, 
+    def __init__(self, maxIterations=100, nsteps=250000, atom_indices=None, 
                  checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, 
                  output_directory_path=None, input_directory_path=None):
         """Initialize base simulation object.
@@ -53,9 +53,6 @@ class BaseSimulation(object):
 
         atom_indices : list, default=None
             List of atom indices to save. If None, save all atoms except water and ions.
-
-        neff_threshold : float, default=0.2
-            Effective sample size threshold to rerun the simulation.
 
         checkpoint_frequency : int, default=25000 (1 ns)
             Frequency (in steps) at which to write checkpoint files.
@@ -77,7 +74,6 @@ class BaseSimulation(object):
         self.maxIterations = maxIterations
         self.nsteps = nsteps
         self.atom_indices = atom_indices
-        self.neff_threshold = neff_threshold
         self.checkpoint_frequency = checkpoint_frequency
         self.logging_frequency = logging_frequency
         self.netcdf_frequency = netcdf_frequency
@@ -419,7 +415,7 @@ class SetupSampler(BaseSimulation):
         Returns
         -------
         samplers : list of SetupSampler instances
-        """                    
+        """
         import tomllib
         from espfit.utils.units import convert_string_to_unit
         from importlib.resources import files

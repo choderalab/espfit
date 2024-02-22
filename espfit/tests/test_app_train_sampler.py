@@ -5,7 +5,7 @@ from espfit.app.train import EspalomaModel
 
 
 @pytest.fixture
-def test_create_espaloma_model():
+def test_create_espaloma_from_toml(tmpdir):
     """Test function to load a TOML configuration file and create an EspalomaModel object.
 
     Returns
@@ -15,6 +15,7 @@ def test_create_espaloma_model():
     """
     filename = files('espfit').joinpath('data/config/config.toml')   # PosixPath
     model = EspalomaModel.from_toml(str(filename))
+    model.output_directory_path = str(tmpdir)   # Update output directory path
 
     return model
 
@@ -51,17 +52,27 @@ def test_load_dataset(tmpdir):
     return ds
 
 
-def test_train_sampler(test_load_dataset, test_create_espaloma_model):
+def test_train_sampler(test_load_dataset, test_create_espaloma_from_toml):
+
+    """
+    TODO
+    ----
+
+    * sampler.py needs to support loading temporary espaloma model during training
+    """
 
     # Load dataset and model
     ds = test_load_dataset
-    model = test_create_espaloma_model
-    model.epochs = 50
+    model = test_create_espaloma_from_toml
+
+    # Set espaloma parameters
     model.dataset_train = ds
+    model.epochs = 10
 
     # Train
-    small_molecule_forcefield=files('espfit').joinpath('data/forcefield/espaloma-0.3.2.pt')
-    biopolymer_file = files('espfit').joinpath('data/target/testsystems/nucleoside/pdbfixer_min.pdb')   # PosixPath
-    output_directory_path = 'examples/checkpoints_sampler'
-    model.train_sampler(biopolymer_file=biopolymer_file, sampler_patience=3, maxIterations=100, nsteps=1000, neff_threshold=0.2, output_directory_path=output_directory_path, small_molecule_forcefield=str(small_molecule_forcefield))
-    raise ValueError('This test is not yet implemented.')
+    model.train_sampler(sampler_patience=3, neff_threshold=0.2)   # fails if sampler_patience is < epochs
+
+    # Check outputs
+    import glob
+    #assert len(glob.glob(model.output_directory_path + '/*')) > 0
+    #assert model.sampler is not None

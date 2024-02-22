@@ -222,8 +222,18 @@ class RNASystem(BaseDataLoader):
             _values = values[:,i,:]  # Coupling values of i-th residue
             values_by_names = dict()
             for j, coupling_name in enumerate(couplings):
-                avg = _values[:,j].mean()  # Mean value of H1H2 coupling of i-th residue
-                std = _values[:,j].std()   # Standard deviation of H1H2 coupling of i-th residue
+                # Function to replace np.nan with None
+                avg = np.round(_values[:,j].mean(), 5)  # Mean value of H1H2 coupling of i-th residue
+                std = np.round(_values[:,j].std(), 5)   # Standard deviation of H1H2 coupling of i-th residue
+
+                replace_nan_with_none = lambda x: None if np.isscalar(x) and np.isnan(x) else x
+                avg = replace_nan_with_none(avg)
+                std = replace_nan_with_none(std)
+                if avg:
+                    avg = avg.item()
+                if std:
+                    std = std.item()
+                # Convert numpy.float to float to avoid serialization issues
                 values_by_names[coupling_name] = {'avg': avg, 'std': std}
             coupling_dict[resname] =  values_by_names
 
