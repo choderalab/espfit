@@ -70,9 +70,9 @@ def test_train_sampler(test_load_dataset, test_create_espaloma_from_toml):
     model.epochs = 10
 
     # Train
-    model.train_sampler(sampler_patience=3, neff_threshold=0.2)   # fails if sampler_patience is < epochs
+    model.train_sampler(sampler_patience=3, neff_threshold=0.2, debug=True)   # fails if sampler_patience is < epochs
 
     # Check outputs
-    import glob
+    #import glob
     #assert len(glob.glob(model.output_directory_path + '/*')) > 0
     #assert model.sampler is not None
