@@ -27,7 +27,7 @@ class EspalomaBase(object):
 
 
     @classmethod
-    def from_toml(cls, filename):
+    def from_toml(cls, filename, **override_espalomamodel_kwargs):
         """Create an instance of the class from a TOML configuration file.
 
         This method reads a TOML file specified by `filename`, extracts the 'espaloma'
@@ -61,7 +61,17 @@ class EspalomaBase(object):
 
         # Update training settings
         for key, value in config['espaloma']['train'].items():
-            setattr(model, key, value)
+            if hasattr(model, key):
+                setattr(model, key, value)
+            else:
+                raise ValueError(f'Invalid attribute {key}.')
+
+        # Override training settings
+        for key, value in override_espalomamodel_kwargs.items():
+            if hasattr(model, key):
+                setattr(model, key, value)
+            else:
+                raise ValueError(f'Invalid attribute {key}.')
 
         return model
 
@@ -438,6 +448,7 @@ class EspalomaModel(EspalomaBase):
         neff = -1
 
         # Train
+        loss_trajectory = {}
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
@@ -452,8 +463,13 @@ class EspalomaModel(EspalomaBase):
                     optimizer.zero_grad()
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
-                    g.nodes["n1"].data["xyz"].requires_grad = True 
-                    loss += self.net(g)    # Return each loss component?
+                    g.nodes["n1"].data["xyz"].requires_grad = True
+                    
+                    # Forward pass
+                    # Note that returned values are weighted losses.
+                    _loss, loss_dict = self.net(g)
+                    # Append loss
+                    loss += _loss
 
                 # Run sampling
                 if epoch > self.sampler_patience:
@@ -495,21 +511,27 @@ class EspalomaModel(EspalomaBase):
 
                     # Compute MD loss
                     _logger.info(f'Compute sampler loss.')
-                    for sampler in samplers:
-                        loss += sampler.compute_loss() * sampler.weight
+                    for sampler_index, sampler in enumerate(samplers):
+                        loss_sampler = sampler.compute_loss() * sampler.weight
+                        loss += loss_sampler
+                        loss_dict[f'sampler{sampler_index}'] = loss_sampler.item()
+
+                # Append individual loss to loss_trajectory
+                loss_trajectory[epoch] = loss_dict
 
                 # Update weights
                 loss.backward()
                 optimizer.step()
                 
-                # Report loss?
-                #self.export_loss(loss, epoch)
-
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
                     _logger.info(f'epoch {epoch}: {_loss:.3f}')
                     self._save_local_model(epoch)
+
+        # Export loss trajectory
+        _logger.info(f'Export loss trajectory to a file.')
+        self.report_loss(loss_trajectory)
 
 
     def _save_local_model(self, epoch):
@@ -528,19 +550,18 @@ class EspalomaModel(EspalomaBase):
         torch.save(self.net.state_dict(), checkpoint_file)
 
     
-    def report_loss(self, loss, epoch):
+    def report_loss(self, loss_trajecotry):
         """Report loss.
 
         Parameters
         ----------
-        loss : float
-            The loss value.
-
-        epoch : int
-            The epoch number.
+        loss : dict
+            The loss trajectory that stores individual weighted losses for each epoch.
 
         Returns
         -------
         None
         """
-        pass
+        import pandas as pd
+        df = pd.DataFrame.from_dict(loss_trajecotry, orient='index')
+        df.to_csv(os.path.join(self.output_directory_path, 'report.log'), sep='\t', float_format='%.4f')
