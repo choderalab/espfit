@@ -15,35 +15,43 @@ experiment_1:
   smiles:
   measurement:
     resi_1:
-      beta_1:
+      1H5P:
+        name: beta_1
         value:
         operator:
         error:
-      beta_2:
+      2H5P:
+        name: beta_2
         value:
         operator:
         error:
-      gamma_1:
+      1H5H4:
+        name: gamma_1
         value: 
         operator:
         error:
-      gamma_2:
+      2H5P:
+        name: gamma_2
         value: 
         operator:
         error:
-      epsilon:
+      H3P:
+        name: epsilon
         value: 
         operator:
         error:
-      nu_1:
+      H1H2:
+        name: nu_1
         value: 6.0
         operator:
         error:
-      nu_2:
+      H2H3:
+        name: nu_2
         value: 5.1
         operator:
         error:
-      nu_3:
+      H3H4:
+        name: nu_3
         value: 3.5
         operator:
         error:
