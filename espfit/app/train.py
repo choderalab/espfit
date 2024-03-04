@@ -328,42 +328,21 @@ class EspalomaModel(EspalomaBase):
         os.makedirs(value, exist_ok=True)
 
 
-    def _load_checkpoint(self):
-        """Load the last checkpoint and restart the training process.
+    def report_loss(self, loss_trajecotry):
+        """Report loss.
 
-        This method finds all the checkpoint files in the output directory, loads the 
-        last checkpoint (e.g. net100.pt), and restarts the training process from the next step. 
-        If no checkpoint files are found, the training process starts from the first step.
+        Parameters
+        ----------
+        loss : dict
+            The loss trajectory that stores individual weighted losses for each epoch.
 
         Returns
         -------
-        int
-            The step from which the training process should be restarted.
+        None
         """
-        import sys
-        import glob
-
-        checkpoints = glob.glob("{}/*.pt".format(self.output_directory_path))
-        
-        if checkpoints:
-            n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
-            n.sort()
-            restart_epoch = n[-1]
-            restart_checkpoint = os.path.join(self.output_directory_path, f"net{restart_epoch}.pt")
-            self.net.load_state_dict(torch.load(restart_checkpoint))
-            logging.info(f'Restarting from ({restart_checkpoint}).')
-        else:
-            restart_epoch = 0
-        
-        if restart_epoch >= self.epochs:
-            _logger.info(f'Already trained for {self.epochs} epochs.')
-            sys.exit(0)
-        elif restart_epoch > 0:
-            _logger.info(f'Training for additional {self.epochs-restart_epoch} epochs.')
-        else:
-            _logger.info(f'Training from scratch for {self.epochs} epochs.')
-
-        return restart_epoch
+        import pandas as pd
+        df = pd.DataFrame.from_dict(loss_trajecotry, orient='index')
+        df.to_csv(os.path.join(self.output_directory_path, 'reporter.log'), sep='\t', float_format='%.4f')
 
 
     def train(self):
@@ -408,11 +387,10 @@ class EspalomaModel(EspalomaBase):
                     # Note: returned loss is a joint loss of different units.
                     _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
                     _logger.info(f'epoch {epoch}: {_loss:.3f}')
-                    checkpoint_file = os.path.join(self.output_directory_path, f"net{epoch}.pt")
-                    torch.save(self.net.state_dict(), checkpoint_file)
+                    self._save_checkpoint(epoch)
     
     
-    def train_sampler(self, sampler_patience=800, neff_threshold=0.2, debug=False):
+    def train_sampler(self, sampler_patience=800, neff_threshold=0.2, sampler_weight=1.0, debug=False):
         """
         Train the Espaloma network model with sampler.
 
@@ -424,8 +402,7 @@ class EspalomaModel(EspalomaBase):
 
         """
         from espfit.utils.units import HARTREE_TO_KCALPERMOL
-        from espfit.utils.sampler.reweight import SamplerReweight
-
+        from espfit.utils.sampler.reweight import SetupSamplerReweight
 
         # Note: RuntimeError will be raised if copy.deepcopy is used.
         # RuntimeError: one of the variables needed for gradient computation has been modified by an inplace 
@@ -433,7 +410,7 @@ class EspalomaModel(EspalomaBase):
         # expected version 1 instead. Hint: the backtrace further above shows the operation that failed to 
         # compute its gradient. The variable in question was changed in there or anywhere later. Good luck!
         import copy
-        net_local = copy.deepcopy(self.net)
+        net_copy = copy.deepcopy(self.net)
 
         self.sampler_patience = sampler_patience
         self.neff_threshold = neff_threshold
@@ -444,10 +421,8 @@ class EspalomaModel(EspalomaBase):
         # Load checkpoint
         self.restart_epoch = self._load_checkpoint()
 
-        # Initialize neff to -1 to trigger the first sampling
-        neff = -1
-
         # Train
+        neff = -1
         loss_trajectory = {}
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
@@ -471,52 +446,37 @@ class EspalomaModel(EspalomaBase):
                     # Append loss
                     loss += _loss
 
-                # Run sampling
+                # Include sampler loss after certain epochs
                 if epoch > self.sampler_patience:
-                    # Compute effective sample size
-                    #neff = xxx
-                    
-                    if neff < self.neff_threshold:
-                        # Get Effective sample size
-                        if neff < 0:
-                            _logger.info(f'Reached sampler patience {self.sampler_patience}. Run sampler for the first time.')                        
-                        else:
-                            _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')                        
-                        
-                        # Save espaloma model
-                        self._save_local_model(epoch)
-                        local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
-                        self.save_model(net=net_local, best_model=local_model, model_name=f"net{epoch}.pt", output_directory_path=self.output_directory_path)
-                        
-                        # Define sampler settings to force the use of local espaloma model
-                        args = [epoch]
-                        if debug == True:
-                            # DEBUG PURPOSE 
-                            from importlib.resources import files
-                            small_molecule_forcefield = str(files('espfit').joinpath("data/forcefield/espaloma-0.3.2.pt"))
-                        else:
-                            small_molecule_forcefield = os.path.join(self.output_directory_path, f"net{epoch}.pt")
+                    # Run sampling for the first time
+                    if neff == -1:
+                        _logger.info(f'Reached sampler patience epoch={self.sampler_patience}. Run sampler for the first time.')
+                        # Initialize
+                        SamplerReweight = SetupSamplerReweight()
+                        # Create new sampler system using local espaloma model
+                        samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                        SamplerReweight.update(samplers)
+                        SamplerReweight.run()
+                    else:
+                        # If effective sample size is below threshold, re-run sampler
+                        neff = SamplerReweight.get_effective_sample_size()
+                        if neff < self.neff_threshold:
+                            _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')
+                            samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                            SamplerReweight.update(samplers)
+                            SamplerReweight.run()
 
-                        override_sampler_kwargs = { 
-                            "small_molecule_forcefield": small_molecule_forcefield,
-                            "output_directory_path": self.output_directory_path 
-                            }
-                        
-                        # Create sampler system from configuration file. Returns list of systems.                        
-                        samplers = SamplerReweight.from_toml(self.configfile, *args, **override_sampler_kwargs)
-                        for sampler in samplers:
-                            _logger.info(f'Running simulation for {sampler.target_name} for {sampler.nsteps} steps...')
-                            sampler.minimize()
-                            sampler.run()
-
-                    # Compute MD loss
+                    # Compute sampler loss
                     _logger.info(f'Compute sampler loss.')
-                    for sampler_index, sampler in enumerate(samplers):
-                        loss_sampler = sampler.compute_loss() * sampler.weight
-                        loss += loss_sampler
-                        loss_dict[f'sampler{sampler_index}'] = loss_sampler.item()
+                    loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
+                    for sampler_index, _loss in enumerate(loss_list):
+                        #loss_dict[f'sampler{sampler_index}'] = _loss.item()
+                        _sampler = SamplerReweight.samplers[sampler_index]
+                        loss_dict[f'{_sampler.target_name}'] = _loss.item()
+                        loss += _loss * sampler_weight
 
-                # Append individual loss to loss_trajectory
+                # Append total and individual loss to loss_trajectory
+                loss_dict['loss'] = loss.item()
                 loss_trajectory[epoch] = loss_dict
 
                 # Update weights
@@ -527,14 +487,53 @@ class EspalomaModel(EspalomaBase):
                     # Note: returned loss is a joint loss of different units.
                     _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
                     _logger.info(f'epoch {epoch}: {_loss:.3f}')
-                    self._save_local_model(epoch)
+                    self._save_checkpoint(epoch)
 
         # Export loss trajectory
+        # TODO: Report losses at every epoch
         _logger.info(f'Export loss trajectory to a file.')
         self.report_loss(loss_trajectory)
 
 
-    def _save_local_model(self, epoch):
+    def _load_checkpoint(self):
+        """Load the last checkpoint and restart the training process.
+
+        This method finds all the checkpoint files in the output directory, loads the 
+        last checkpoint (e.g. net100.pt), and restarts the training process from the next step. 
+        If no checkpoint files are found, the training process starts from the first step.
+
+        Returns
+        -------
+        int
+            The step from which the training process should be restarted.
+        """
+        import sys
+        import glob
+
+        checkpoints = glob.glob("{}/*.pt".format(self.output_directory_path))
+        
+        if checkpoints:
+            n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
+            n.sort()
+            restart_epoch = n[-1]
+            restart_checkpoint = os.path.join(self.output_directory_path, f"net{restart_epoch}.pt")
+            self.net.load_state_dict(torch.load(restart_checkpoint))
+            logging.info(f'Restarting from ({restart_checkpoint}).')
+        else:
+            restart_epoch = 0
+        
+        if restart_epoch >= self.epochs:
+            _logger.info(f'Already trained for {self.epochs} epochs.')
+            sys.exit(0)
+        elif restart_epoch > 0:
+            _logger.info(f'Training for additional {self.epochs-restart_epoch} epochs.')
+        else:
+            _logger.info(f'Training from scratch for {self.epochs} epochs.')
+
+        return restart_epoch
+
+
+    def _save_checkpoint(self, epoch):
         """Save local model.
 
         Parameters
@@ -549,19 +548,32 @@ class EspalomaModel(EspalomaBase):
         checkpoint_file = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
         torch.save(self.net.state_dict(), checkpoint_file)
 
+
+    def _setup_local_samplers(self, epoch, net_copy, debug):
+        from espfit.app.sampler import SetupSampler
+
+        # Save espaloma checkpoint models
+        self._save_checkpoint(epoch)
+        # Save checkpoint as temporary espaloma model (force field)
+        local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
+        self.save_model(net=net_copy, best_model=local_model, model_name=f"net{epoch}.pt", output_directory_path=self.output_directory_path)
+        
+        # Define sampler settings with override arguments
+        args = [epoch]
+        if debug == True:
+            from importlib.resources import files
+            small_molecule_forcefield = str(files('espfit').joinpath("data/forcefield/espaloma-0.3.2.pt"))
+        else:
+            small_molecule_forcefield = os.path.join(self.output_directory_path, f"net{epoch}.pt")
+
+        override_sampler_kwargs = { 
+            "atomSubset": 'all',
+            "small_molecule_forcefield": small_molecule_forcefield,
+            "output_directory_path": self.output_directory_path 
+            }
+        
+        # Create sampler system from configuration file. Returns list of systems.                        
+        samplers = SetupSampler.from_toml(self.configfile, *args, **override_sampler_kwargs)
+
+        return samplers
     
-    def report_loss(self, loss_trajecotry):
-        """Report loss.
-
-        Parameters
-        ----------
-        loss : dict
-            The loss trajectory that stores individual weighted losses for each epoch.
-
-        Returns
-        -------
-        None
-        """
-        import pandas as pd
-        df = pd.DataFrame.from_dict(loss_trajecotry, orient='index')
-        df.to_csv(os.path.join(self.output_directory_path, 'report.log'), sep='\t', float_format='%.4f')

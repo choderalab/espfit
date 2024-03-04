@@ -38,7 +38,7 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, maxIterations=100, nsteps=250000, atom_indices=None, 
+    def __init__(self, maxIterations=100, nsteps=250000, atomSubset='solute', 
                  checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, 
                  output_directory_path=None, input_directory_path=None):
         """Initialize base simulation object.
@@ -51,9 +51,9 @@ class BaseSimulation(object):
         nsteps : int, default=250000 (10 ns using 4 fs timestep)
             Number of steps to run the simulation.
 
-        atom_indices : list, default=None
-            List of atom indices to save. If None, save all atoms except water and ions.
-
+        atomSubset : str, default='solute'
+            Subset of atoms to save. Default is 'solute'. Other options 'all' and 'not water'.
+            
         checkpoint_frequency : int, default=25000 (1 ns)
             Frequency (in steps) at which to write checkpoint files.
 
@@ -73,10 +73,13 @@ class BaseSimulation(object):
         """
         self.maxIterations = maxIterations
         self.nsteps = nsteps
-        self.atom_indices = atom_indices
+        self.atomSubset = atomSubset
         self.checkpoint_frequency = checkpoint_frequency
         self.logging_frequency = logging_frequency
         self.netcdf_frequency = netcdf_frequency
+
+        if self.atomSubset not in ['solute', 'all', 'not water']:
+            raise ValueError(f"Invalid atomSubset: {self.atomSubset}. Expected 'solute', 'all', or 'not water'.")
 
         if output_directory_path is None:
             output_directory_path = os.getcwd()  # Is this right?
@@ -163,10 +166,34 @@ class BaseSimulation(object):
 
         # Select atoms to save
         import mdtraj
-        if self.atom_indices is None:
+        #if self.atomSubset == 'solute':
+        #    self.atom_indices = []
+        #    mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
+        #    res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
+        #    for r in res:
+        #        for a in r.atoms:
+        #            self.atom_indices.append(a.index)
+        #elif self.atomSubset == 'all':
+        #    self.atom_indices = None
+        #elif self.atomSubset == 'not water':
+        #    self.atom_indices = []
+        #    mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
+        #    res = [ r for r in mdtop.residues if r.name not in ('HOH') ]
+        #    for r in res:
+        #        for a in r.atoms:
+        #            self.atom_indices.append(a.index)
+        #else:
+        #    raise ValueError(f"Invalid atomSubset: {self.atomSubset}. Expected 'solute', 'all', or 'not water'.")
+
+        if self.atomSubset == 'all':
+            self.atom_indices = None
+        else:
             self.atom_indices = []
             mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
-            res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
+            if self.atomSubset == 'solute':
+                res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
+            elif self.atomSubset == 'not water':
+               res = [ r for r in mdtop.residues if r.name not in ('HOH') ]
             for r in res:
                 for a in r.atoms:
                     self.atom_indices.append(a.index)

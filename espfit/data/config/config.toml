@@ -38,7 +38,6 @@ nsteps = 1000
 checkpoint_frequency = 10
 logging_frequency = 1
 netcdf_frequency = 10
-weight = 1
 
 # system setup parameters
 [[sampler.setup]]
@@ -53,4 +52,3 @@ nsteps = 1000
 checkpoint_frequency = 10
 logging_frequency = 1
 netcdf_frequency = 10
-weight = 1

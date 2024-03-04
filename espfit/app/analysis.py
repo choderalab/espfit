@@ -26,11 +26,14 @@ class BaseDataLoader(object):
     load_traj(reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', atom_indices=None, stride=1):
         Load MD trajectory.
     """
-    def __init__(self, input_directory_path=None, output_directory_path=None):
+    def __init__(self, atomSubset='solute', input_directory_path=None, output_directory_path=None):
         """Initialize base data loader object.
         
         Parameters
         ----------
+        atomSubset : str, default='solute'
+            Subset of atoms to save. Default is 'solute'. Other options 'all' and 'not water'.
+
         input_directory_path : str, optional
             Input directory path. Default is None.
             If None, the current working directory will be used.
@@ -39,6 +42,10 @@ class BaseDataLoader(object):
             Output directory path. Default is None.
             If None, the current working directory will be used.
         """
+        self.atomSubset = atomSubset
+        if self.atomSubset not in ['solute', 'all', 'not water']:
+            raise ValueError(f"Invalid atomSubset: {self.atomSubset}. Expected 'solute', 'all', or 'not water'.")
+
         if input_directory_path is None:
             input_directory_path = os.getcwd()
         if output_directory_path is None:
@@ -62,7 +69,7 @@ class BaseDataLoader(object):
 
 
     # Should this be a classmethod?
-    def load_traj(self, reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', atom_indices=None, stride=1, input_directory_path=None):
+    def load_traj(self, reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', stride=1, input_directory_path=None):
         """Load MD trajectory.
         
         Parameters
@@ -72,10 +79,6 @@ class BaseDataLoader(object):
 
         trajectory_netcdf : str, optional
             Trajectory netcdf file name. Default is 'traj.nc'.
-
-        atom_indices : list, optional
-            List of atom indices to load from trajectory. Default is None.
-            If None, all atoms will be loaded.
 
         stride : int, optional
             Stride to load the trajectory. Default is 1.
@@ -92,22 +95,31 @@ class BaseDataLoader(object):
         # Load reference pdb (solvated system)
         pdb = os.path.join(self.input_directory_path, reference_pdb)
         ref_traj = mdtraj.load(pdb)
+        
         # Select atoms to load from trajectory
-        if atom_indices is None:
+        if self.atomSubset == 'all':
+            self.atom_indices = None
+            self.ref_traj = ref_traj
+        else:
             self.atom_indices = []
             mdtop = ref_traj.topology
-            res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
+            if self.atomSubset == 'solute':
+                res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
+            elif self.atomSubset == 'not water':
+                res = [ r for r in mdtop.residues if r.name not in ('HOH') ]
+            # Get atom indices
             for r in res:
                 for a in r.atoms:
                     self.atom_indices.append(a.index)
-        else:
-            self.atom_indices = atom_indices
-        self.ref_traj = ref_traj.atom_slice(self.atom_indices)
-
+            self.ref_traj = ref_traj.atom_slice(self.atom_indices)
+        
         # Load trajectory
         netcdf = os.path.join(self.input_directory_path, trajectory_netcdf)
         traj = mdtraj.load(netcdf, top=self.ref_traj.topology, stride=stride)
-        self.traj = traj.atom_slice(self.atom_indices)
+        if self.atom_indices:
+            self.traj = traj.atom_slice(self.atom_indices)
+        else:
+            self.traj = traj
 
         
 class RNASystem(BaseDataLoader):

@@ -186,6 +186,7 @@ class GetLoss(torch.nn.Module):
         loss = loss_energy + loss_force + loss_charge + loss_torsion + loss_improper
 
         loss_dict = {
+            'loss': None,
             'energy': loss_energy.item(),
             'force': loss_force.item(),
             'charge': loss_charge.item(),
