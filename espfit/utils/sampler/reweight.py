@@ -9,7 +9,6 @@ class SetupSamplerReweight(object):
 
     def __init__(self):
         self.samplers = None
-        self.samplers_old = None
         self.weights = None   # list
 
 
@@ -20,20 +19,30 @@ class SetupSamplerReweight(object):
             sampler.run()
 
 
-    def update(self, samplers):
-        # Update sampler
-        self.samplers_old = self.samplers
-        self.samplers = samplers
+    def get_effective_sample_size(self, temporary_samplers):
+        
+        # Check if sampler is None
+        if self.samplers is None:
+            return -1
 
-
-    def get_effective_sample_size(self):
         # Compute effective sample size
+        import mdtraj
+        from openmm.unit import kilocalories_per_mole as kcalpermol
+        potential_energy_diff = []
+        for sampler, temporary_sampler in zip(self.samplers, temporary_samplers):
+            traj = mdtraj.load(sampler.output_directory_path + '/traj.nc', top=sampler.output_directory_path + '/solvated.pdb')
+            for i in range(traj.n_frames):
+                # U(x0, theta0)
+                sampler.simulation.context.setPositions(traj.openmm_positions(i))
+                potential_energy = sampler.simulation.context.getState(getEnergy=True).getPotentialEnergy()
+                # U(x0, theta1)
+                temporary_sampler.simulation.context.setPositions(traj.openmm_positions(i))
+                reduced_potential_energy = temporary_sampler.simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        
+                delta = (potential_energy - reduced_potential_energy).value_in_unit(kcalpermol)
+                potential_energy_diff.append(delta)
 
-        # U(x0, theta0)
-        old_potential_energy = 0
-
-        # U(x0, theta1)
-        reduced_potential_energy = 0
+                _logger.info(f'{potential_energy._value}, {reduced_potential_energy._value}, {delta}')
 
         neff = 0.5
         return neff

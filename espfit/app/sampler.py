@@ -496,8 +496,8 @@ class SetupSampler(BaseSimulation):
                 else:
                     raise ValueError(f"Invalid keyword argument: {key}")
 
-            # Update output directory path if epoch is given
-            if args is not None:
+            # Update output directory path if args (epoch) is given
+            if args:
                 if len(args) == 1 and isinstance(args[0], int):
                     sampler.output_directory_path = os.path.join(sampler.output_directory_path, sampler.target_name, f'{args[0]}')
                 else:
