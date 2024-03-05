@@ -585,8 +585,6 @@ class CustomGraphDataset(GraphDataset):
         for key in g.nodes['n1'].data.keys():
             if key not in ["q_ref", "idxs", "h0"]:
                 for i in range(1, len(ds)):
-                    if key == "xyz":
-                        n_confs = ds[i].nodes['n1'].data['xyz'].shape[1]
                     g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], ds[i].nodes['n1'].data[key]), dim=1)
         
         return g

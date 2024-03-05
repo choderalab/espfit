@@ -123,7 +123,7 @@ class BaseSimulation(object):
         from openmmtools.utils import get_fastest_platform
         platform = get_fastest_platform()
         platform_name = platform.getName()
-        _logger.info(f"Fastest platform: {platform_name}")
+        _logger.debug(f"Fastest platform: {platform_name}")
         if platform_name == "CUDA":
             platform.setPropertyDefaultValue('DeterministicForces', 'true')  # default is false
             platform.setPropertyDefaultValue('Precision', 'mixed')  # default is single
@@ -141,11 +141,10 @@ class BaseSimulation(object):
         -------
         None
         """
-
         if output_directory_path is not None:
             self.output_directory_path = output_directory_path  # property decorator is called
 
-        _logger.info(f"Minimizing system for maximum {self.maxIterations} steps.")
+        _logger.debug(f"Minimizing system for maximum {self.maxIterations} steps")
         self.simulation.minimizeEnergy(self.maxIterations)
 
 
@@ -161,30 +160,14 @@ class BaseSimulation(object):
         -------
         None
         """
+        import mdtraj
+        from mdtraj.reporters import NetCDFReporter
+        from openmm.app import CheckpointReporter, StateDataReporter
+        
         if output_directory_path is not None:
             self.output_directory_path = output_directory_path  # property decorator is called
 
         # Select atoms to save
-        import mdtraj
-        #if self.atomSubset == 'solute':
-        #    self.atom_indices = []
-        #    mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
-        #    res = [ r for r in mdtop.residues if r.name not in ('HOH', 'NA', 'CL', 'K') ]
-        #    for r in res:
-        #        for a in r.atoms:
-        #            self.atom_indices.append(a.index)
-        #elif self.atomSubset == 'all':
-        #    self.atom_indices = None
-        #elif self.atomSubset == 'not water':
-        #    self.atom_indices = []
-        #    mdtop = mdtraj.Topology.from_openmm(self.simulation.topology)
-        #    res = [ r for r in mdtop.residues if r.name not in ('HOH') ]
-        #    for r in res:
-        #        for a in r.atoms:
-        #            self.atom_indices.append(a.index)
-        #else:
-        #    raise ValueError(f"Invalid atomSubset: {self.atomSubset}. Expected 'solute', 'all', or 'not water'.")
-
         if self.atomSubset == 'all':
             self.atom_indices = None
         else:
@@ -199,18 +182,13 @@ class BaseSimulation(object):
                     self.atom_indices.append(a.index)
        
         # Define reporter
-        from mdtraj.reporters import NetCDFReporter
-        from openmm.app import CheckpointReporter, StateDataReporter
-
         self._check_file_exists("traj.nc")
         self.simulation.reporters.append(NetCDFReporter(os.path.join(self.output_directory_path, f"traj.nc"), 
                                                         min(self.netcdf_frequency, self.nsteps), 
                                                         atomSubset=self.atom_indices))
-        
         self._check_file_exists("checkpoint.chk")
         self.simulation.reporters.append(CheckpointReporter(os.path.join(self.output_directory_path, f"checkpoint.chk"), 
                                                             min(self.checkpoint_frequency, self.nsteps)))
-        
         self._check_file_exists("reporter.log")
         self.simulation.reporters.append(StateDataReporter(os.path.join(self.output_directory_path, f"reporter.log"), 
                                                            min(self.logging_frequency, self.nsteps), 
@@ -218,7 +196,7 @@ class BaseSimulation(object):
                                                            totalEnergy=True, temperature=True, volume=True, density=True, speed=True))
         
         # Run
-        _logger.info(f"Run MD simulation for {self.nsteps} steps")
+        _logger.info(f"Running simulation for {self.nsteps} steps...")
         self.simulation.step(self.nsteps)
 
 
@@ -248,7 +226,7 @@ class BaseSimulation(object):
         None
         """
         from openmm import XmlSerializer
-        _logger.info(f"Serialize and export system")
+        _logger.debug(f"Serialize and export system")
 
         if output_directory_path is not None:
             # Create a new output directory different from the one specified when the SetupSampler instance was created.
@@ -332,6 +310,12 @@ class SetupSampler(BaseSimulation):
     create_system(biopolymer_file=None, ligand_file=None):
         Create biopolymer-ligand system and export serialized system XML file and solvated pdb file.
 
+    from_toml(filename, *args, **override_sampler_kwargs):
+        Create SetupSampler from a TOML configuration file.
+
+    from_xml(filename):
+        Create SetupSampler from a serialized system XML file.
+
     Examples
     --------
     >>> from espfit.app.sampler import SetupSampler
@@ -352,18 +336,15 @@ class SetupSampler(BaseSimulation):
     ['amber/protein.ff14SB.xml', 'amber/RNA.OL3.xml']       : pl-multi (TPO): NG, pl-single: OK, RNA: OK
     """
     def __init__(self, 
-                 #small_molecule_forcefield='openff-2.1.0',
                  small_molecule_forcefield='espfit/data/forcefield/espaloma-0.3.2.pt',
                  forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'],
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
                  ionic_strength=0.15 * unit.molar, 
-                 #constraints=app.HBonds, 
                  hmass=3.0 * unit.amu, 
                  temperature=300.0 * unit.kelvin, 
                  pressure=1.0 * unit.atmosphere, 
                  pme_tol=2.5e-04, 
-                 #nonbonded_method=app.PME, 
                  barostat_period=50, 
                  timestep=4 * unit.femtoseconds, 
                  override_with_espaloma=True,
@@ -383,8 +364,6 @@ class SetupSampler(BaseSimulation):
             The padding distance around the solute in the solvent box. Default is 9.0 * unit.angstroms.
         ionic_strength : Quantity, optional
             The ionic strength of the solvent. Default is 0.15 * unit.molar.
-        constraints : object, optional
-            The type of constraints to be applied to the system. Default is app.HBonds.
         hmass : Quantity, optional
             The mass of the hydrogen atoms. Default is 3.0 * unit.amu.
         temperature : Quantity, optional
@@ -393,8 +372,6 @@ class SetupSampler(BaseSimulation):
             The pressure of the system. Default is 1.0 * unit.atmosphere.
         pme_tol : float, optional
             The Ewald error tolerance for PME electrostatics. Default is 2.5e-04.
-        nonbonded_method : object, optional
-            The nonbonded method to be used for the system. Default is app.PME.
         barostat_period : int, optional
             The frequency at which the barostat is applied. Default is 50.
         timestep : Quantity, optional
@@ -408,12 +385,10 @@ class SetupSampler(BaseSimulation):
         self.forcefield_files = self._update_forcefield_files(forcefield_files)
         self.solvent_padding = solvent_padding
         self.ionic_strength = ionic_strength
-        #self.constraints = constraints
         self.hmass = hmass
         self.temperature = temperature
         self.pressure = pressure
         self.pme_tol = pme_tol
-        #self.nonbonded_method = nonbonded_method
         self.barostat_period = barostat_period
         self.timestep = timestep
         self.override_with_espaloma = override_with_espaloma
@@ -459,7 +434,7 @@ class SetupSampler(BaseSimulation):
             raise ValueError("target is not specified in the configuration file")
         
         samplers = []
-        _logger.info(f'Found {len(config)} systems in the configuration file')
+        _logger.debug(f'Found {len(config)} systems in the configuration file')
         for _config in config:
             sampler = cls()
 
@@ -488,7 +463,6 @@ class SetupSampler(BaseSimulation):
                     else:
                         raise ValueError(f"Invalid keyword argument: {key}")
             
-            # Expected kwargs: output_directory_path
             # Pass temporary espaloma model to the sampler if kwargs are given
             for key, value in override_sampler_kwargs.items():
                 if hasattr(sampler, key):
@@ -661,8 +635,6 @@ class SetupSampler(BaseSimulation):
 
         # Initialize system generator.
         _logger.debug("Initialize system generator")
-        #forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : self.constraints, 'rigidWater': True, 'hydrogenMass' : self.hmass}
-        #periodic_forcefield_kwargs = {'nonbondedMethod': self.nonbonded_method}
         forcefield_kwargs = {'removeCMMotion': True, 'ewaldErrorTolerance': self.pme_tol, 'constraints' : app.HBonds, 'rigidWater': True, 'hydrogenMass' : self.hmass}
         periodic_forcefield_kwargs = {'nonbondedMethod': app.PME}
         barostat = MonteCarloBarostat(self.pressure, self.temperature, self.barostat_period)
@@ -682,11 +654,11 @@ class SetupSampler(BaseSimulation):
                                                  template_generator_kwargs=template_generator_kwargs)
         
         if ligand_file is not None:
-            _logger.info("Add molecules to system generator")
+            _logger.debug("Add molecules to system generator")
             self._system_generator.template_generator.add_molecules(self._ligand_offmol)
             
         # Solvate system
-        _logger.info("Solvating system...")
+        _logger.debug("Solvating system...")
         modeller = app.Modeller(self._complex_topology, self._complex_positions)
         modeller.addSolvent(self._system_generator.forcefield, model=self.water_model, padding=self.solvent_padding, ionicStrength=self.ionic_strength)
 
@@ -704,7 +676,7 @@ class SetupSampler(BaseSimulation):
             # (espfit/data/target/testsystems/nucleoside/pdbfixer_min.pdb).
             # No explicit error message was given. It failed to show the following logging information:
             #
-            # _logger.info(f'Requested to generate parameters for residue {residue}')
+            # _logger.debug(f'Requested to generate parameters for residue {residue}')
             # https://github.com/openmm/openmmforcefields/blob/main/openmmforcefields/generators/template_generators.py#L285
             #
             # However, it works for protein test systems (espfit/data/target/testsystems/protein-ligand/target.pdb).
@@ -712,7 +684,7 @@ class SetupSampler(BaseSimulation):
             # As a workaround, we will delete the original `self._system_generator` and create a new one to regenerate the system with espaloma.
             # Only water and ion forcefield files will be used to regenerate the system. Solute molecules will be parametrized with espaloma.
             # 
-            _logger.info("Regenerate system with espaloma.")
+            _logger.debug("Regenerate system with espaloma.")
 
             # Re-create system generator
             del self._system_generator
@@ -757,13 +729,13 @@ class SetupSampler(BaseSimulation):
         import mdtraj
         from openff.toolkit import Molecule
 
-        _logger.info("Regenerate system with espaloma")
+        _logger.debug("Regenerate system with espaloma")
 
         # Check biopolymer chains
         mdtop = mdtraj.Topology.from_openmm(self.modeller_solvated_topology)
         chain_indices = [ chain.index for chain in self.modeller_solvated_topology.chains() ]
         biopolymer_chain_indices = [ chain_index for chain_index in chain_indices if mdtop.select(f"not (water or resname NA or resname K or resname CL or resname UNK) and chainid == {chain_index}").any() ]
-        _logger.info(f"Biopolymer chain indices: {biopolymer_chain_indices}")
+        _logger.debug(f"Biopolymer chain indices: {biopolymer_chain_indices}")
 
         # Get OpenMM topology of solute with one residue per molecule. 
         # Espaloma will use residue name "XX". Check conflicting residue names.
@@ -772,14 +744,14 @@ class SetupSampler(BaseSimulation):
             raise Exception('Found conflict residue name in biopolymer.')
 
         # Initilize espaloma topology
-        # TODO: From software engineering point of view, should this be `self.new_solvated_topology` or `new_solvated_topology`?
+        # TODO: Should this be `self.new_solvated_topology` or `new_solvated_topology`?
         self.new_solvated_topology = app.Topology()
         self.new_solvated_topology.setPeriodicBoxVectors(self.modeller_solvated_topology.getPeriodicBoxVectors())
         new_atoms = {}
 
         # Regenerate biopolymer topology
         chain_index = 0
-        _logger.info(f"Regenerating biopolymer topology...")
+        _logger.debug(f"Regenerating biopolymer topology...")
         for chain in self.modeller_solvated_topology.chains():
             new_chain = self.new_solvated_topology.addChain(chain.id)
             # Convert biopolymer into a single residue
@@ -844,7 +816,7 @@ class SetupSampler(BaseSimulation):
         -------
         app.Topology : The updated topology reflecting the new system.
         """
-        _logger.info("Update residue names in espaloma topology.")
+        _logger.debug("Update residue names in espaloma topology.")
         
         # Get original residue names.
         atom_name_lookup = []

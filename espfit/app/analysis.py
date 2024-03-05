@@ -1,11 +1,5 @@
 """
 Compute experimental observables from MD simulations.
-
-Notes
------
-
-TODO
-----
 """
 import os
 import numpy as np
@@ -17,10 +11,6 @@ _logger = logging.getLogger(__name__)
 class BaseDataLoader(object):
     """Base class for data loader.
     
-    TODO
-    ----
-    * Add more methods to check trajectory information (e.g. number of frames, number of atoms, etc.)
-
     Methods
     -------
     load_traj(reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', atom_indices=None, stride=1):
@@ -68,7 +58,6 @@ class BaseDataLoader(object):
         os.makedirs(value, exist_ok=True)
 
 
-    # Should this be a classmethod?
     def load_traj(self, reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', stride=1, input_directory_path=None):
         """Load MD trajectory.
         
@@ -86,6 +75,10 @@ class BaseDataLoader(object):
         input_directory_path : str, optional
             Input directory path. Default is None.
             If None, the current working directory will be used.
+
+        Returns
+        -------
+        None
         """
         import mdtraj
 
@@ -182,15 +175,14 @@ class RNASystem(BaseDataLoader):
         return a
 
 
-    def compute_jcouplings(self, couplings=None, residues=None):
+    def compute_jcouplings(self, weights=None, couplings=None, residues=None):
         """Compute J-couplings from MD trajectory.
         
-        TODO
-        ----
-        * Compute confidence interval.
-
         Parameters
         ----------
+        weights : numpy.ndarray, optional
+            Weights to compute the J-couplings. Default is None.
+
         couplings : str, optional
             Name of the couplings to compute. Default is None. 
             If a list of couplings to be chosen from [H1H2,H2H3,H3H4,1H5P,2H5P,C4Pb,1H5H4,2H5H4,H3P,C4Pe,H1C2/4,H1C6/8] 
@@ -216,7 +208,7 @@ class RNASystem(BaseDataLoader):
         """
         import barnaba as bb
 
-        _logger.info("Computing J-couplings from MD trajectory...")
+        _logger.info("Compute J-couplings from MD trajectory")
 
         if couplings is not None:
             # Check if the provided coupling names are valid
@@ -228,25 +220,32 @@ class RNASystem(BaseDataLoader):
         # residue_list: list of M nucleobases
         values, resname_list = bb.jcouplings_traj(self.traj, couplings=couplings, residues=residues)
 
+        # Convert numpy.float to float to avoid serialization issues
+        replace_nan_with_none = lambda x: None if np.isscalar(x) and np.isnan(x) else x.item()
+
         # Loop over residues and couplings to store the computed values
         coupling_dict = dict()
         for i, resname in enumerate(resname_list):
             _values = values[:,i,:]  # Coupling values of i-th residue
             values_by_names = dict()
             for j, coupling_name in enumerate(couplings):
-                # Function to replace np.nan with None
-                avg = np.round(_values[:,j].mean(), 5)  # Mean value of H1H2 coupling of i-th residue
-                std = np.round(_values[:,j].std(), 5)   # Standard deviation of H1H2 coupling of i-th residue
-
-                replace_nan_with_none = lambda x: None if np.isscalar(x) and np.isnan(x) else x
-                avg = replace_nan_with_none(avg)
-                std = replace_nan_with_none(std)
-                if avg:
-                    avg = avg.item()
-                if std:
-                    std = std.item()
-                # Convert numpy.float to float to avoid serialization issues
-                values_by_names[coupling_name] = {'avg': avg, 'std': std}
+                avg_raw = np.round(_values[:,j].mean(), 5)  # e.g. mean value of H1H2 coupling of i-th residue
+                std_raw = np.round(_values[:,j].std(), 5)   # e.g. standard deviation of H1H2 coupling of i-th residue
+                avg_raw = replace_nan_with_none(avg_raw)
+                std_raw = replace_nan_with_none(std_raw)
+                if weights is not None:
+                    arr = _values[:,j] * weights
+                    #_logger.info(f'non-weighted: {_values[:,j]}')
+                    #_logger.info(f'weights:      {weights}')
+                    #_logger.info(f'weighted:     {arr}')
+                    avg = np.round(arr.mean(), 5)
+                    std = np.round(arr.std(), 5)
+                    avg = replace_nan_with_none(avg)
+                    std = replace_nan_with_none(std)
+                else:
+                    avg = avg_raw
+                    std = std_raw
+                values_by_names[coupling_name] = {'avg': avg, 'std': std, 'avg_raw': avg_raw, 'std_raw': std_raw}
             coupling_dict[resname] =  values_by_names
 
         return coupling_dict
@@ -266,6 +265,9 @@ class RNASystem(BaseDataLoader):
         return available_coupling_names
         
 
+#
+# Future work?
+#
 class ProteinSystem(BaseDataLoader):
     def __init__(self, **kwargs):
         super(ProteinSystem, self).__init__(**kwargs)

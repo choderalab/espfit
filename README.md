@@ -37,12 +37,12 @@ ds.compute_relative_energy()
 # Create esplama model
 from espfit.app.train import EspalomaModel
 filename = 'espfit/data/config/config.toml'
-model = EspalomaModel.from_toml(filename)
+# Override training settings in config.toml
+kwargs = {'output_directory_path': 'checkpoints', 'epochs': 100}
+model = EspalomaModel.from_toml(filename, **kwargs)
 model.dataset_train = ds
-# Change default training settings
-model.epochs = 100
 # Set sampler settings
-model.train_sampler(sampler_patience=800, neff_threshold=0.2)
+model.train_sampler(sampler_patience=800, neff_threshold=0.2, sampler_weight=1)
 ```
 
 ### Standalone Usage

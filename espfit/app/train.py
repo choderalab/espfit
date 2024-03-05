@@ -3,12 +3,12 @@ Create espaloma network model and train the model.
 
 TODO
 ----
-* Export loss to a file (e.g. LossReporter class?)
 * Add support to use multiple GPUs
 * Improve how data are parsed using dataclasses or pydantic
 """
 import os
 import torch
+import espaloma as esp
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -18,9 +18,9 @@ class EspalomaBase(object):
     def __init__(self):
         # Check if GPU is available
         if torch.cuda.is_available():
-            _logger.info('GPU is available for training.')
+            _logger.debug('GPU is available for training.')
         else:
-            _logger.info('GPU is not available for training.')
+            _logger.debug('GPU is not available for training.')
 
         # Check torch data type
         _logger.debug(f'Torch data type is {torch.get_default_dtype()}')
@@ -39,6 +39,10 @@ class EspalomaBase(object):
         ----------
         filename : str
             Path to the TOML file containing the configuration for the espaloma model.
+
+        override_espalomamodel_kwargs : dict
+            A dictionary of keyword arguments to override the default settings for the 
+            espaloma model.
 
         Returns
         -------
@@ -92,9 +96,6 @@ class EspalomaBase(object):
         list
             A list of modules for the Espaloma network model.
         """
-
-        import espaloma as esp
-
         # GNN
         gnn_method = 'SAGEConv'
         gnn_options = {}
@@ -167,7 +168,6 @@ class EspalomaBase(object):
         torch.nn.Sequential
             The constructed Espaloma network model.
         """
-        import espaloma as esp
         from espfit.utils.espaloma.module import GetLoss
 
         # Get base model
@@ -210,8 +210,6 @@ class EspalomaBase(object):
         -------
         None
         """
-        import espaloma as esp
-
         if output_directory_path is not None:
             os.makedirs(output_directory_path, exist_ok=True)
         else:
@@ -328,30 +326,38 @@ class EspalomaModel(EspalomaBase):
         os.makedirs(value, exist_ok=True)
 
 
-    def report_loss(self, loss_trajecotry):
+    def report_loss(self, epoch, loss_dict):
         """Report loss.
 
         Parameters
         ----------
-        loss : dict
-            The loss trajectory that stores individual weighted losses for each epoch.
+        loss_dict : dict
+            The loss trajectory that stores individual weighted losses at a given epoch.
 
         Returns
         -------
         None
         """
         import pandas as pd
-        df = pd.DataFrame.from_dict(loss_trajecotry, orient='index')
-        df.to_csv(os.path.join(self.output_directory_path, 'reporter.log'), sep='\t', float_format='%.4f')
+        df = pd.DataFrame.from_dict(loss_dict, orient='index').T
+        df.insert(0, 'epoch', epoch)
+        
+        log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
+
+        if os.path.exists(log_file_path):
+            existing_headers = pd.read_csv(log_file_path, sep='\t', nrows=0).columns.tolist()            
+            if set(df.columns) != set(existing_headers):
+                df_old = pd.read_csv(log_file_path, sep='\t')
+                df = pd.concat([df_old, df], ignore_index=True)
+            else:
+                df.to_csv(log_file_path, sep='\t', float_format='%.4f', index=False, header=False, mode='a')
+        else:
+                df.to_csv(log_file_path, sep='\t', float_format='%.4f', index=False)
 
 
     def train(self):
         """
         Train the Espaloma network model.
-
-        TODO
-        ----
-        * Export training settings to a file?
 
         Returns
         -------
@@ -394,12 +400,23 @@ class EspalomaModel(EspalomaBase):
         """
         Train the Espaloma network model with sampler.
 
-        TODO
-        ----
-        * Export loss to a file (e.g. LossReporter class?)
-        * Should `nsteps` be a variable when calling train_sampler?
-        * Should `sampler_patience` and `neff_threshold` be an instance variable of sampler.BaseSimulation?
+        Parameters
+        ----------
+        sampler_patience : int, default=800
+            The number of epochs to wait before using sampler.
 
+        neff_threshold : float, default=0.2
+            The minimum effective sample size threshold.
+
+        sampler_weight : float, default=1.0
+            The weight for the sampler loss.
+
+        debug : bool, default=False
+            If True, use espaloma-0.3.pt for debugging.
+
+        Returns
+        -------
+        None
         """
         from espfit.utils.units import HARTREE_TO_KCALPERMOL
         from espfit.utils.sampler.reweight import SetupSamplerReweight
@@ -425,7 +442,6 @@ class EspalomaModel(EspalomaBase):
         SamplerReweight = SetupSamplerReweight()
         
         # Train
-        loss_trajectory = {}
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
@@ -441,54 +457,43 @@ class EspalomaModel(EspalomaBase):
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
                     g.nodes["n1"].data["xyz"].requires_grad = True
-                    
-                    # Forward pass
-                    # Note that returned values are weighted losses.
+
                     _loss, loss_dict = self.net(g)
-                    # Append loss
                     loss += _loss
 
-                # Include sampler loss after certain epochs
                 if epoch > self.sampler_patience:
-                    # Save checkpoint as local model (force field)
-                    _samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                    neff = SamplerReweight.get_effective_sample_size(temporary_samplers=_samplers)  # returns -1 if SamplerReweight.samplers is None
+                    # Save checkpoint as local model (net.pt)
+                    samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                    # neff_min is -1 if SamplerReweight.samplers is None
+                    neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
 
                     # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
-                    if neff < self.neff_threshold:
-                        _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')
-                        SamplerReweight.samplers = _samplers
+                    if neff_min < self.neff_threshold:
+                        _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold})')
+                        SamplerReweight.samplers = samplers
                         SamplerReweight.run()
-
-                    # Delete temporary_samplers
-                    del _samplers
+                    del samplers
 
                     # Compute sampler loss
-                    _logger.info(f'Compute sampler loss.')
                     loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
-                    for sampler_index, _loss in enumerate(loss_list):
-                        _sampler = SamplerReweight.samplers[sampler_index]
-                        loss_dict[f'{_sampler.target_name}'] = _loss.item()
-                        loss += _loss * sampler_weight
+                    for sampler_index, sampler_loss in enumerate(loss_list):
+                        sampler = SamplerReweight.samplers[sampler_index]
+                        loss += sampler_loss * sampler_weight
+                        loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
+                    loss_dict['neff'] = neff_min
 
-                # Append total and individual loss to loss_trajectory
                 loss_dict['loss'] = loss.item()
-                loss_trajectory[epoch] = loss_dict
+                self.report_loss(epoch, loss_dict)
 
-                # Update weights
+                # Back propagate
                 loss.backward()
                 optimizer.step()
                 
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
-                    _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    _logger.info(f'epoch {epoch}: {_loss:.3f}')
+                    #_loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
+                    _logger.info(f'Epoch {epoch}: loss={loss.item():.3f}')
                     self._save_checkpoint(epoch)
-
-        # Export loss trajectory
-        # TODO: Report losses at every epoch
-        _logger.info(f'Export loss trajectory to a file.')
-        self.report_loss(loss_trajectory)
 
 
     def _load_checkpoint(self):
@@ -546,14 +551,46 @@ class EspalomaModel(EspalomaBase):
 
 
     def _save_local_model(self, epoch, net_copy):
+        """Save local model (force field).
+        
+        Parameters
+        ----------
+        epoch : int
+            The epoch number.
+
+        net_copy : torch.nn.Sequential
+            A deep copy of the Espaloma network model.
+
+        Returns
+        -------
+        None
+        """
         # Save checkpoint as temporary espaloma model (force field)
-        _logger.info(f'Save checkpoint{epoch}.pt as temporary espaloma model (force field).')
+        _logger.info(f'Save checkpoint{epoch}.pt as temporary espaloma model (net.pt)')
         self._save_checkpoint(epoch)
         local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
         self.save_model(net=net_copy, best_model=local_model, model_name=f"net.pt", output_directory_path=self.output_directory_path)
 
 
     def _setup_local_samplers(self, epoch, net_copy, debug):
+        """Setup local samplers.
+        
+        Parameters
+        ----------
+        epoch : int
+            The epoch number.
+
+        net_copy : torch.nn.Sequential
+            A deep copy of the Espaloma network model.
+        
+        debug : bool
+            If True, use espaloma-0.3.2.pt for debugging.
+
+        Returns
+        -------
+        list
+            A list of sampler systems.
+        """
         from espfit.app.sampler import SetupSampler
         
         self._save_local_model(epoch, net_copy)

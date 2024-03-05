@@ -56,6 +56,8 @@ class GetLoss(torch.nn.Module):
     compute_improper_loss(g):
         Compute improper l2 regularization
 
+    forward(g):
+        Compute joint loss
     """
     def __init__(self, weights={'energy': 1.0, 'force': 1.0, 'charge': 1.0, 'torsion': 1.0, 'improper': 1.0}):
         """Define loss function.
