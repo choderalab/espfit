@@ -421,8 +421,10 @@ class EspalomaModel(EspalomaBase):
         # Load checkpoint
         self.restart_epoch = self._load_checkpoint()
 
+        # Initialize
+        SamplerReweight = SetupSamplerReweight()
+        
         # Train
-        neff = -1
         loss_trajectory = {}
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
@@ -448,29 +450,23 @@ class EspalomaModel(EspalomaBase):
 
                 # Include sampler loss after certain epochs
                 if epoch > self.sampler_patience:
-                    # Run sampling for the first time
-                    if neff == -1:
-                        _logger.info(f'Reached sampler patience epoch={self.sampler_patience}. Run sampler for the first time.')
-                        # Initialize
-                        SamplerReweight = SetupSamplerReweight()
-                        # Create new sampler system using local espaloma model
-                        samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                        SamplerReweight.update(samplers)
+                    # Save checkpoint as local model (force field)
+                    _samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                    neff = SamplerReweight.get_effective_sample_size(temporary_samplers=_samplers)  # returns -1 if SamplerReweight.samplers is None
+
+                    # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
+                    if neff < self.neff_threshold:
+                        _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')
+                        SamplerReweight.samplers = _samplers
                         SamplerReweight.run()
-                    else:
-                        # If effective sample size is below threshold, re-run sampler
-                        neff = SamplerReweight.get_effective_sample_size()
-                        if neff < self.neff_threshold:
-                            _logger.info(f'Effective sample size ({neff}) below threshold ({self.neff_threshold}).')
-                            samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                            SamplerReweight.update(samplers)
-                            SamplerReweight.run()
+
+                    # Delete temporary_samplers
+                    del _samplers
 
                     # Compute sampler loss
                     _logger.info(f'Compute sampler loss.')
                     loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
                     for sampler_index, _loss in enumerate(loss_list):
-                        #loss_dict[f'sampler{sampler_index}'] = _loss.item()
                         _sampler = SamplerReweight.samplers[sampler_index]
                         loss_dict[f'{_sampler.target_name}'] = _loss.item()
                         loss += _loss * sampler_weight
@@ -549,27 +545,31 @@ class EspalomaModel(EspalomaBase):
         torch.save(self.net.state_dict(), checkpoint_file)
 
 
+    def _save_local_model(self, epoch, net_copy):
+        # Save checkpoint as temporary espaloma model (force field)
+        _logger.info(f'Save checkpoint{epoch}.pt as temporary espaloma model (force field).')
+        self._save_checkpoint(epoch)
+        local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
+        self.save_model(net=net_copy, best_model=local_model, model_name=f"net.pt", output_directory_path=self.output_directory_path)
+
+
     def _setup_local_samplers(self, epoch, net_copy, debug):
         from espfit.app.sampler import SetupSampler
-
-        # Save espaloma checkpoint models
-        self._save_checkpoint(epoch)
-        # Save checkpoint as temporary espaloma model (force field)
-        local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
-        self.save_model(net=net_copy, best_model=local_model, model_name=f"net{epoch}.pt", output_directory_path=self.output_directory_path)
         
+        self._save_local_model(epoch, net_copy)
+
         # Define sampler settings with override arguments
         args = [epoch]
         if debug == True:
             from importlib.resources import files
             small_molecule_forcefield = str(files('espfit').joinpath("data/forcefield/espaloma-0.3.2.pt"))
         else:
-            small_molecule_forcefield = os.path.join(self.output_directory_path, f"net{epoch}.pt")
+            small_molecule_forcefield = os.path.join(self.output_directory_path, f"net.pt")
 
         override_sampler_kwargs = { 
             "atomSubset": 'all',
             "small_molecule_forcefield": small_molecule_forcefield,
-            "output_directory_path": self.output_directory_path 
+            "output_directory_path": self.output_directory_path
             }
         
         # Create sampler system from configuration file. Returns list of systems.                        
