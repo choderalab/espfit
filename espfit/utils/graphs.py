@@ -33,7 +33,7 @@ class CustomGraphDataset(GraphDataset):
     compute_baseline_energy_force(forcefield_list=['openff-2.0.0']):
         Compute energies and forces using other force fields.
 
-    reshape_conformation_size(n_confs=50):
+    reshape_conformation_size(n_confs=50, include_min_energy_conf=False):
         Reshape conformation size.
     
     compute_relative_energy():
