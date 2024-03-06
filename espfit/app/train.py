@@ -339,20 +339,17 @@ class EspalomaModel(EspalomaBase):
         None
         """
         import pandas as pd
-        df = pd.DataFrame.from_dict(loss_dict, orient='index').T
-        df.insert(0, 'epoch', epoch)
         
         log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
+        df_new = pd.DataFrame.from_dict(loss_dict, orient='index').T
+        df_new.insert(0, 'epoch', epoch)
 
         if os.path.exists(log_file_path):
-            existing_headers = pd.read_csv(log_file_path, sep='\t', nrows=0).columns.tolist()            
-            if set(df.columns) != set(existing_headers):
-                df_old = pd.read_csv(log_file_path, sep='\t')
-                df = pd.concat([df_old, df], ignore_index=True)
-            else:
-                df.to_csv(log_file_path, sep='\t', float_format='%.4f', index=False, header=False, mode='a')
+            df_old = pd.read_csv(log_file_path, sep='\t')
+            df = pd.concat([df_old, df_new])
         else:
-                df.to_csv(log_file_path, sep='\t', float_format='%.4f', index=False)
+            df = df_new
+        df.to_csv(log_file_path, sep='\t', float_format='%.4f', index=False)
 
 
     def train(self):
@@ -385,14 +382,18 @@ class EspalomaModel(EspalomaBase):
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
                     g.nodes["n1"].data["xyz"].requires_grad = True 
-                    loss = self.net(g)
+                    #loss = self.net(g)
+                    loss, loss_dict = self.net(g)
                     loss.backward()
                     optimizer.step()
-                
+
+                loss_dict['loss'] = loss.item()
+                self.report_loss(epoch, loss_dict)
+
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
-                    _loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    _logger.info(f'epoch {epoch}: {_loss:.3f}')
+                    loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
+                    _logger.info(f'Epoch {epoch}: loss={loss.item():.3f}')
                     self._save_checkpoint(epoch)
     
     
@@ -418,7 +419,6 @@ class EspalomaModel(EspalomaBase):
         -------
         None
         """
-        from espfit.utils.units import HARTREE_TO_KCALPERMOL
         from espfit.utils.sampler.reweight import SetupSamplerReweight
 
         # Note: RuntimeError will be raised if copy.deepcopy is used.
@@ -463,8 +463,8 @@ class EspalomaModel(EspalomaBase):
 
                 if epoch > self.sampler_patience:
                     # Save checkpoint as local model (net.pt)
+                    # `neff_min` is -1 if SamplerReweight.samplers is None
                     samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                    # neff_min is -1 if SamplerReweight.samplers is None
                     neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
 
                     # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
@@ -546,7 +546,7 @@ class EspalomaModel(EspalomaBase):
         -------
         None
         """
-        checkpoint_file = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
+        checkpoint_file = os.path.join(self.output_directory_path, f"ckpt{epoch}.pt")
         torch.save(self.net.state_dict(), checkpoint_file)
 
 
@@ -566,9 +566,9 @@ class EspalomaModel(EspalomaBase):
         None
         """
         # Save checkpoint as temporary espaloma model (force field)
-        _logger.info(f'Save checkpoint{epoch}.pt as temporary espaloma model (net.pt)')
+        _logger.info(f'Save ckpt{epoch}.pt as temporary espaloma model (net.pt)')
         self._save_checkpoint(epoch)
-        local_model = os.path.join(self.output_directory_path, f"checkpoint{epoch}.pt")
+        local_model = os.path.join(self.output_directory_path, f"ckpt{epoch}.pt")
         self.save_model(net=net_copy, best_model=local_model, model_name=f"net.pt", output_directory_path=self.output_directory_path)
 
 
