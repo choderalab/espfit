@@ -393,7 +393,7 @@ class EspalomaModel(EspalomaBase):
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    _logger.info(f'Epoch {epoch}: loss={loss.item():.3f}')
+                    _logger.info(f'Epoch {epoch}: loss={loss:.3f}')
                     self._save_checkpoint(epoch)
     
     
@@ -514,10 +514,10 @@ class EspalomaModel(EspalomaBase):
         checkpoints = glob.glob("{}/*.pt".format(self.output_directory_path))
         
         if checkpoints:
-            n = [ int(c.split('net')[1].split('.')[0]) for c in checkpoints ]
+            n = [ int(c.split('ckpt')[1].split('.')[0]) for c in checkpoints ]
             n.sort()
             restart_epoch = n[-1]
-            restart_checkpoint = os.path.join(self.output_directory_path, f"net{restart_epoch}.pt")
+            restart_checkpoint = os.path.join(self.output_directory_path, f"ckpt{restart_epoch}.pt")
             self.net.load_state_dict(torch.load(restart_checkpoint))
             logging.info(f'Restarting from ({restart_checkpoint}).')
         else:
