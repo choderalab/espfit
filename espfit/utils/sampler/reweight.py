@@ -165,7 +165,7 @@ class SetupSamplerReweight(object):
                         exp_error = 0.5  # TODO: Check experimental error
                     resi_index = int(resi_index)
                     pred_value = list(pred.values())[resi_index][key]['avg']
-                    pred_error = list(pred.values())[resi_index][key]['std']  # standard deviation
+                    pred_error = list(pred.values())[resi_index][key]['std']
                     _logger.debug(f'Exp ({resi_index}-{key}): {exp}')
                     _logger.debug(f'Pred ({resi_index}-{key}): {pred}')
 
@@ -232,11 +232,8 @@ class SetupSamplerReweight(object):
         
         # Compute observable
         if self.weights.keys():
-            #print('weights key found')
-            #print(f'{self.weights}')
             pred = target.compute_jcouplings(weights=self.weights[target_name]['weights'])
         else:
-            #print('weights key not found')
             pred = target.compute_jcouplings(weights=None)
         _logger.debug(f'Computed observable: {pred}')
 
