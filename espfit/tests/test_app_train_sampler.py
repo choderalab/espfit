@@ -53,13 +53,9 @@ def test_load_dataset(tmpdir):
 
 
 def test_train_sampler(test_load_dataset, test_create_espaloma_from_toml):
-
-    """
-    TODO
-    ----
-
-    * sampler.py needs to support loading temporary espaloma model during training
-    """
+    """Test function to train a sampler."""
+    import os
+    import glob
 
     # Load dataset and model
     ds = test_load_dataset
@@ -67,12 +63,19 @@ def test_train_sampler(test_load_dataset, test_create_espaloma_from_toml):
 
     # Set espaloma parameters
     model.dataset_train = ds
-    model.epochs = 10
+    model.epochs = 15
 
     # Train
-    model.train_sampler(sampler_patience=3, neff_threshold=0.2, debug=True)   # fails if sampler_patience is < epochs
+    sampler_patience = 10
+    # Force sampler to run after reaching sampler patience by setting neff_threshold to 1.0
+    model.train_sampler(sampler_patience=sampler_patience, neff_threshold=1.0, sampler_weight=1)
 
     # Check outputs
-    #import glob
-    #assert len(glob.glob(model.output_directory_path + '/*')) > 0
-    #assert model.sampler is not None
+    n_ckpt = len(glob.glob(os.path.join(model.output_directory_path, 'ckpt*pt')))
+    assert n_ckpt == int(model.epochs / model.checkpoint_frequency)
+
+    n_adenosine_pred_yaml = len(glob.glob(os.path.join(model.output_directory_path, 'adenosine/*/pred.yaml')))
+    assert n_adenosine_pred_yaml == int(model.epochs - sampler_patience)
+
+    n_cytidine_pred_yaml = len(glob.glob(os.path.join(model.output_directory_path, 'cytidine/*/pred.yaml')))
+    assert n_cytidine_pred_yaml == int(model.epochs - sampler_patience)
