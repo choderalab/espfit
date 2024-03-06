@@ -440,7 +440,7 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def reshape_conformation_size(self, n_confs=50):
+    def reshape_conformation_size(self, n_confs=50, include_min_energy_conf=False):
         """Reshape conformation size.
 
         This is a work around to handle different graph size (shape). DGL requires at least one dimension with same size. 
@@ -469,17 +469,18 @@ class CustomGraphDataset(GraphDataset):
         self._remove_node_features()
 
         new_graphs = []
+        n_confs_cache = n_confs
         for i, g in enumerate(self.graphs):
             n = g.nodes['n1'].data['xyz'].shape[1]
 
             if n == n_confs:
-                _logger.info(f"Mol #{i} ({n} conformations)")
+                _logger.info(f"Mol #{i} ({n} conformers)")
                 new_graphs.append(g)
 
             elif n < n_confs:
                 random.seed(self.random_seed)
                 index_random = random.choices(range(0, n), k=n_confs-n)
-                _logger.info(f"Randomly select {len(index_random)} conformations from Mol #{i} ({n} conformations)")
+                _logger.info(f"Randomly select {len(index_random)} conformers from Mol #{i} ({n} conformers)")
 
                 _g = copy.deepcopy(g)
                 _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
@@ -488,9 +489,17 @@ class CustomGraphDataset(GraphDataset):
                 new_graphs.append(_g)
 
             else:
-                _logger.info(f"Shuffling Mol #{i} ({n} conformations) and splitting into {n_confs}")
                 random.seed(self.random_seed)
                 idx_range = random.sample(range(n), k=n)
+
+                # Get index for minimum energy conformer
+                if include_min_energy_conf:
+                    index_min = [g.nodes['g'].data['u_ref'].argmin().item()]
+                    n_confs = n_confs_cache - 1
+                    _logger.info(f"Shuffe Mol #{i} ({n} conformers) and split into {n_confs} conformers and add minimum energy conformer (index #{index_min[0]})")
+                else:
+                    _logger.info(f"Shuffe Mol #{i} ({n} conformers) and split into {n_confs} conformers")
+
                 for j in range(n // n_confs + 1):
                     _g = copy.deepcopy(g)
 
@@ -498,7 +507,12 @@ class CustomGraphDataset(GraphDataset):
                         index = range(j*n_confs, n)
                         random.seed(self.random_seed)
                         index_random = random.choices(range(0, n), k=(j+1)*n_confs-n)
-                        _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
+
+                        if include_min_energy_conf:
+                            index_random = index_random + index_min
+                            _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers and add minimum energy conformer")
+                        else:
+                            _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
 
                         _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'][:, index], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
                         _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'][:, index, :], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
@@ -507,7 +521,12 @@ class CustomGraphDataset(GraphDataset):
                         idx1 = j*n_confs
                         idx2 = (j+1)*n_confs
                         index = idx_range[idx1:idx2]
-                        _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
+
+                        if include_min_energy_conf:
+                            index = index + index_min
+                            _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2} and add minimum energy conformer")
+                        else:
+                            _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
 
                         _g.nodes["g"].data["u_ref"] = _g.nodes['g'].data['u_ref'][:, index]
                         _g.nodes["n1"].data["xyz"] = _g.nodes['n1'].data['xyz'][:, index, :]
