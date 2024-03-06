@@ -32,7 +32,7 @@ Infrastruture to train espaloma with experimental observables
 from espfit.utils.graphs import CustomGraphDataset  
 path = 'espfit/data/qcdata/openff-toolkit-0.10.6/dgl2/protein-torsion-sm/'
 ds = CustomGraphDataset.load(path)
-ds.reshape_conformation_size(n_confs=50)
+ds.reshape_conformation_size(n_confs=50, include_min_energy_conf=True)
 ds.compute_relative_energy()
 # Create esplama model
 from espfit.app.train import EspalomaModel
