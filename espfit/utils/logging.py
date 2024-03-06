@@ -11,8 +11,8 @@ def set_logging_level(level):
 
     Parameters
     ----------
-    level : int
-        The logging level. For example, logging.INFO.
+    level : str 
+        The logging level. Options are [NOTSET, DEBUG, INFO, WARNING, ERROR, CRITICAL, FATAL].
 
     Returns
     -------
