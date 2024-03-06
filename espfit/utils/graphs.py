@@ -455,6 +455,9 @@ class CustomGraphDataset(GraphDataset):
         n_confs : int, default=50
             Number of conformations per graph (molecule).
 
+        include_min_energy_conf : boolean, default=False
+            If True, then minimum energy conformer will be included for all split graphs.
+
         Returns
         -------
         None
