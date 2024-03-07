@@ -96,8 +96,8 @@ class CustomGraphDataset(GraphDataset):
         self.random_seed = random_seed
 
 
-    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
-        """Drop and merge duplicate nonisomeric smiles across different data sources.
+    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path=None, isomeric=True):
+        """Drop and merge duplicate (non)isomeric smiles within the dataset.
 
         Modifies list of esp.Graph's in place.
 
@@ -112,6 +112,14 @@ class CustomGraphDataset(GraphDataset):
         output_directory_path : str, default=None
             Output directory path to save the merged dataset. 
             If None, then the current working directory is used.
+
+        isoemric : boolean, default=True
+            If True, then isomeric smiles will be used to identify unique molecules.
+            
+            If False, then nonisomeric smiles will be used to identify unique molecules.
+            Note that partial charges will be averaged for the same nonisomeric smiles.
+            This is because different 3D structures can have different partial charges 
+            due to different conformations.
         
         Returns
         -------
@@ -123,8 +131,11 @@ class CustomGraphDataset(GraphDataset):
         if output_directory_path == None:
             output_directory_path = os.getcwd()
 
-        _logger.info(f'Drop and merge duplicate smiles')
-        smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
+        if isomeric == True:
+            _logger.info(f'Drop and merge duplicate isomeric smiles')
+        else:
+            _logger.info(f'Drop and merge duplicate nonisomeric smiles')
+        smiles = [ g.mol.to_smiles(isomeric=isomeric, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
         _logger.info(f'Found {len(smiles)} molecules')
 
         # Unique entries
@@ -160,8 +171,8 @@ class CustomGraphDataset(GraphDataset):
                 # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
                 _output_directory_path = os.path.join(output_directory_path, dataset_name)
                 os.makedirs(_output_directory_path, exist_ok=True)
-                output_directory_path = os.path.join(_output_directory_path, molname)
-                g.save(output_directory_path)
+                new_output_directory_path = os.path.join(_output_directory_path, molname)
+                g.save(new_output_directory_path)
 
         # Update in place
         new_graphs = unique_graphs + duplicated_graphs
@@ -344,7 +355,7 @@ class CustomGraphDataset(GraphDataset):
         COLLISION_RATE = 1.0 / unit.picosecond
 
         if not all(_ in self.available_forcefields for _ in forcefield_list):
-            raise Exception(f'{forcefield} force field not supported. Supported force fields are {SUPPORTED_FORCEFIELD_LIST}.')
+            raise Exception(f'{forcefield} force field not supported. Supported force fields are {self.available_forcefields}.')
 
         new_graphs = []
         for i, g in enumerate(self.graphs):
@@ -573,7 +584,7 @@ class CustomGraphDataset(GraphDataset):
 
         Parameters
         ----------
-        ds : list of espaloma.graphs.graph.Graph
+        ds : list of espaloma.graphs.graph.Graph, default=None
             The list of Graph instances to be merged. All Graphs in the list must be equivalent.
 
         Returns
@@ -586,12 +597,32 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
+        # Check if all inputs are equivalent (isomeric smiles)
+        # If not, get average partial charges across different isomeric smiles (molecules)
+        isomeric_smiles = [g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=False) for g in ds]
+        unique_isomeric_smiles = set(isomeric_smiles)
+        if len(unique_isomeric_smiles) != 1:
+            n_atoms = ds[0].nodes['n1'].data['q_ref'].shape[0]
+            q_ref = torch.zeros(n_atoms, 1)
+            for unique_isomeric_smile in unique_isomeric_smiles:
+                index = [i for i, isomeric_smile in enumerate(isomeric_smiles) if isomeric_smile in unique_isomeric_smile][0]
+                q_ref += ds[index].nodes['n1'].data['q_ref']
+            q_ref = q_ref / len(set(isomeric_smiles))
+            # Update partial charges in-place
+            for i in range(len(ds)):
+                ds[i].nodes['n1'].data['q_ref'] = q_ref
+
         # Check if graphs are equivalent
         for i in range(1, len(ds)):
-            # Openff molecule
-            assert ds[0].mol == ds[i].mol
             # Mapped isomeric smiles
-            assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+            if len(unique_isomeric_smiles) != 1:
+                mapped_smiles = ds[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
+                mapped_smiles_i = ds[i].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Mapped nonisomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
+            else:
+                mapped_smiles = ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
+                mapped_smiles_i = ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Mapped isomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
             # Other node features
             for key in ["sum_q"]:
                 np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
