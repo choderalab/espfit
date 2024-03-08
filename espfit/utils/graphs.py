@@ -27,10 +27,10 @@ class CustomGraphDataset(GraphDataset):
     filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref'):
         Filter high energy conformers and ensure minimum number of conformers.
 
-    filter_minimum_conformers(n_conformer_threshold=3):
+    filter_minimum_conformers(n_conformer_threshold=5):
         Filter molecules with conformers below given threshold.
 
-    compute_baseline_energy_force(forcefield_list=['openff-2.0.0']):
+    compute_baseline_energy_force(forcefield_list=['openff-2.1.0']):
         Compute energies and forces using other force fields.
 
     reshape_conformation_size(n_confs=50, include_min_energy_conf=False):
@@ -62,9 +62,9 @@ class CustomGraphDataset(GraphDataset):
     >>> # Filter high energy conformers (u_ref: QM reference after nonbonded interactions are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref')
     >>> # Filter conformers below certain number
-    >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
+    >>> ds.filter_minimum_conformers(n_conformer_threshold=5)
     >>> # Compute energies and forces using other force fields
-    >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.0.0'])
+    >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.1.0'])
     >>> # Regenerate improper torsions in-place
     >>> from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
     >>> ds.apply(regenerate_impropers, in_place=True)
@@ -75,7 +75,7 @@ class CustomGraphDataset(GraphDataset):
     """
 
 
-    def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', random_seed=2666):
+    def __init__(self, graphs=[], reference_forcefield='openff-2.1.0', random_seed=2666):
         """Construct custom GraphDataset instance to prepare QC dataset for espaloma training.
 
         Parameters
@@ -83,7 +83,7 @@ class CustomGraphDataset(GraphDataset):
         graphs : list of espaloma.graphs.graph.Graph, default=[]
             DGL graphs loaded from `espaloma.data.dataset.GraphDataset.load`.
              
-        reference_forcefield : str, default=openff-2.0.0
+        reference_forcefield : str, default=openff-2.1.0
             Reference force field used to compute force field parameters if not present in espaloma.
             The default behavior is to compute the LJ parameters with `reference_forcefield`.
         
@@ -215,6 +215,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Subtract nonbonded interactions from QC reference')
         new_graphs = []
         from espaloma.data.md import subtract_nonbonded_force
 
@@ -234,8 +235,8 @@ class CustomGraphDataset(GraphDataset):
                 # subtract_nonbonded_force() will return the coulomb interactions using the predefined partial charges.
                 #
                 # Reference:
-                # [1] https://github.com/choderalab/espaloma/blob/main/espaloma/data/md.py#L503C19-L503C19
-                # [2] https://github.com/openmm/openmmforcefields/blob/637d551a4408cc6145529cd9dc30e267f4178367/openmmforcefields/generators/template_generators.py#L1432
+                # [1] https://github.com/choderalab/espaloma/blob/main/espaloma/data/md.py#L503
+                # [2] https://github.com/openmm/openmmforcefields/blob/637d551a4408cc6145529cd9dc30e267f4178367/openmmforcefields/generators/template_generators.py#L607
                 g = subtract_nonbonded_force(g, forcefield=self.reference_forcefield, subtract_charges=True)
             elif subtract_vdw == False and subtract_ele == False:
                 g = subtract_nonbonded_force(g, forcefield=self.reference_forcefield, subtract_charges=False)
@@ -266,6 +267,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Filter high energy conformers with relative energy threshold {relative_energy_threshold}')
         if node_feature == None:
             raise Exception(f'Please specify the node feature name under node type `g`')
 
@@ -289,20 +291,21 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def filter_minimum_conformers(self, n_conformer_threshold=3):
+    def filter_minimum_conformers(self, n_conformer_threshold=5):
         """Filter molecules with conformers below given threshold.
 
         Modifies list of esp.Graph's in place.
     
         Parameters
         ----------        
-        n_conformer_threshold : int, default=3
+        n_conformer_threshold : int, default=5
             The minimium number of conformers per entry.
 
         Returns
         -------
         None
         """
+        _logger.info(f'Filter molecules with conformers below {n_conformer_threshold} conformers')
         new_graphs = []
         for i, g in enumerate(self.graphs):
             n_confs = g.nodes['n1'].data['xyz'].shape[1]
@@ -314,15 +317,15 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def compute_baseline_energy_force(self, forcefield_list=['openff-2.0.0']):
+    def compute_baseline_energy_force(self, forcefield_list=['openff-2.1.0']):
         """Compute energies and forces using other force fields.
 
-        New node features are added to g.nodes['g']. For example, g.nodes['g'].data['u_openff-2.0.0'] and 
-        g.nodes['n1'].data['u_openff-2.0.0_prime'] will be created for energies and forces, respectively.
+        New node features are added to g.nodes['g']. For example, g.nodes['g'].data['u_openff-2.1.0'] and 
+        g.nodes['n1'].data['u_openff-2.1.0_prime'] will be created for energies and forces, respectively.
         
         Parameters
         ----------
-        forcefield_list : list, default=['openff-2.0.0']
+        forcefield_list : list, default=['openff-2.1.0']
             Currently supports the following force fields:
             'gaff-1.81', 'gaff-2.11', 'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
             'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
@@ -349,6 +352,8 @@ class CustomGraphDataset(GraphDataset):
         from openmm.unit import Quantity
         from openmmforcefields.generators import SystemGenerator
 
+        _logger.info(f'Compute energies and forces using other force fields')
+
         # Simulation Specs (not important, just place holders)
         TEMPERATURE = 350 * unit.kelvin
         STEP_SIZE = 1.0 * unit.femtosecond
@@ -358,73 +363,78 @@ class CustomGraphDataset(GraphDataset):
             raise Exception(f'{forcefield} force field not supported. Supported force fields are {self.available_forcefields}.')
 
         new_graphs = []
-        for i, g in enumerate(self.graphs):
-            for forcefield in forcefield_list:
-                if forcefield.startswith('gaff') or forcefield.startswith('openff'):
-                    generator = SystemGenerator(
-                        small_molecule_forcefield=forcefield,
-                        molecules=[g.mol],
-                        forcefield_kwargs={"constraints": None, "removeCMMotion": False},
-                    )
-                    name = forcefield
-                elif forcefield.startswith('amber') or forcefield.startswith('protein'):
-                    generator = SystemGenerator(
-                        forcefields=[forcefield],
-                        molecules=[g.mol],
-                        forcefield_kwargs={"constraints": None, "removeCMMotion": False},
-                    )
-                    if forcefield == 'amber14-all.xml':
-                        name = 'amber14sb'
-                    elif forcefield == 'amber/protein.ff14SBonlysc.xml':
-                        name = 'amber14sb_onlysc'
-                else:
-                    import warnings
-                    warnings.warn(f'{forcefield} not supported for molecule {g.mol.to_smiles()}')
-                
-                suffix = name
+        for g in self.graphs:
+            try:
+                for forcefield in forcefield_list:
+                    if forcefield.startswith('gaff') or forcefield.startswith('openff'):
+                        generator = SystemGenerator(
+                            small_molecule_forcefield=forcefield,
+                            molecules=[g.mol],
+                            forcefield_kwargs={"constraints": None, "removeCMMotion": False},
+                        )
+                        name = forcefield
+                    elif forcefield.startswith('amber') or forcefield.startswith('protein'):
+                        generator = SystemGenerator(
+                            forcefields=[forcefield],
+                            molecules=[g.mol],
+                            forcefield_kwargs={"constraints": None, "removeCMMotion": False},
+                        )
+                        if forcefield == 'amber14-all.xml':
+                            name = 'amber14sb'
+                        elif forcefield == 'amber/protein.ff14SBonlysc.xml':
+                            name = 'amber14sb_onlysc'
+                    else:
+                        import warnings
+                        warnings.warn(f'{forcefield} not supported for molecule {g.mol.to_smiles()}')
+                    
+                    suffix = name
 
-                # Parameterize topology
-                topology = g.mol.to_topology().to_openmm()
-                # Create openmm system
-                system = generator.create_system(topology)
-                # Use langevin integrator, although it's not super useful here
-                integrator = openmm.LangevinIntegrator(TEMPERATURE, COLLISION_RATE, STEP_SIZE)
-                # Create simulation
-                simulation = Simulation(topology=topology, system=system, integrator=integrator)
-                # Get energy
-                us = []
-                us_prime = []
-                xs = (
-                    Quantity(
-                        g.nodes["n1"].data["xyz"].detach().numpy(),
-                        espunits.DISTANCE_UNIT,
+                    # Parameterize topology
+                    topology = g.mol.to_topology().to_openmm()
+                    # Create openmm system
+                    system = generator.create_system(topology)
+                    # Use langevin integrator, although it's not super useful here
+                    integrator = openmm.LangevinIntegrator(TEMPERATURE, COLLISION_RATE, STEP_SIZE)
+                    # Create simulation
+                    simulation = Simulation(topology=topology, system=system, integrator=integrator)
+                    # Get energy
+                    us = []
+                    us_prime = []
+                    xs = (
+                        Quantity(
+                            g.nodes["n1"].data["xyz"].detach().numpy(),
+                            espunits.DISTANCE_UNIT,
+                        )
+                        .value_in_unit(unit.nanometer)
+                        .transpose((1, 0, 2))
                     )
-                    .value_in_unit(unit.nanometer)
-                    .transpose((1, 0, 2))
-                )
-                for x in xs:
-                    simulation.context.setPositions(x)
-                    us.append(
-                        simulation.context.getState(getEnergy=True)
-                        .getPotentialEnergy()
-                        .value_in_unit(espunits.ENERGY_UNIT)
-                    )
-                    us_prime.append(
-                        simulation.context.getState(getForces=True)
-                        .getForces(asNumpy=True)
-                        .value_in_unit(espunits.FORCE_UNIT) * -1
+                    for x in xs:
+                        simulation.context.setPositions(x)
+                        us.append(
+                            simulation.context.getState(getEnergy=True)
+                            .getPotentialEnergy()
+                            .value_in_unit(espunits.ENERGY_UNIT)
+                        )
+                        us_prime.append(
+                            simulation.context.getState(getForces=True)
+                            .getForces(asNumpy=True)
+                            .value_in_unit(espunits.FORCE_UNIT) * -1
+                        )
+
+                    us = torch.tensor(us, dtype=torch.float64)[None, :]
+                    us_prime = torch.tensor(
+                        np.stack(us_prime, axis=1),
+                        dtype=torch.get_default_dtype(),
                     )
 
-                us = torch.tensor(us, dtype=torch.float64)[None, :]
-                us_prime = torch.tensor(
-                    np.stack(us_prime, axis=1),
-                    dtype=torch.get_default_dtype(),
-                )
+                    g.nodes['g'].data['u_%s' % suffix] = us
+                    g.nodes['n1'].data['u_%s_prime' % suffix] = us_prime
 
-                g.nodes['g'].data['u_%s' % suffix] = us
-                g.nodes['n1'].data['u_%s_prime' % suffix] = us_prime
-
-            new_graphs.append(g)
+                new_graphs.append(g)
+            except Exception as e:
+                mol_err = g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+                _logger.warning(f'Error occured during processing {mol_err}: {e}')
+                continue
 
         # Update in place
         self.graphs = new_graphs
@@ -440,6 +450,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Compute relative energy')
         new_graphs = []
         for g in self.graphs:
             g.nodes['g'].data['u_ref_relative'] = g.nodes['g'].data['u_ref'].detach().clone()
