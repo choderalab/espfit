@@ -116,11 +116,31 @@ class CustomGraphDataset(GraphDataset):
         isoemric : boolean, default=True
             If True, then isomeric smiles will be used to identify unique molecules.
             
-            If False, then nonisomeric smiles will be used to identify unique molecules.
-            Note that partial charges will be averaged for the same nonisomeric smiles.
-            This is because different 3D structures can have different partial charges 
-            due to different conformations.
-        
+            Note: isomeric=False is deprecated at the moment.
+            There is no guarantee that the atom order is consistent across different molecules
+            with the same nonisomeric smiles. In consistent atom order, results in different
+            mapped smiles (atom mapping). To concatenate graphs with different mapped smiles 
+            but with the same nonisomeric smiles, atom orders needs to be fixed. 
+            This is not implemented yet.
+
+            For example, different mapped smiles for the same nonisomeric smiles:
+            
+            [H:21][c:1]1[c:2]([c:4]([c:7]([c:5]([c:3]1[H:23])[H:25])[N:14]=[N:15][C:8]2=[C:10]3[N:16]\
+            ([C:9](=[C:6]([C:11](=[O:19])[N:18]3[N:17]([C:12]2=[O:20])[H:31])[H:26])[C:13]([H:27])\
+            ([H:28])[H:29])[H:30])[H:24])[H:22]
+            
+            [H:22][c:11]1[c:12]([c:14]([c:16]([c:15]([c:13]1[H:24])[H:26])[N:4]=[N:3][C:8]2=[C:9]3[N:17]\
+            ([C:10](=[C:7]([C:6](=[O:2])[N:19]3[N:18]([C:5]2=[O:1])[H:28])[H:21])[C:20]([H:29])\
+            ([H:30])[H:31])[H:27])[H:25])[H:23]
+
+            This will give you different g.nodes['n2'].data['idxs'] which is problematic when
+            concatenating graphs with different mapped smiles but the same nonisomeric smiles.
+
+            #If False, then nonisomeric smiles will be used to identify unique molecules.
+            #Note that partial charges will be averaged for the same nonisomeric smiles.
+            #This is because different 3D structures can have different partial charges 
+            #due to different conformations.
+
         Returns
         -------
         None
@@ -134,7 +154,8 @@ class CustomGraphDataset(GraphDataset):
         if isomeric == True:
             _logger.info(f'Drop and merge duplicate isomeric smiles')
         else:
-            _logger.info(f'Drop and merge duplicate nonisomeric smiles')
+            #_logger.info(f'Drop and merge duplicate nonisomeric smiles')
+            raise ImportError(f'isomeric=False is deprecated at the moment')
         smiles = [ g.mol.to_smiles(isomeric=isomeric, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
         _logger.info(f'Found {len(smiles)} molecules')
 
@@ -219,7 +240,7 @@ class CustomGraphDataset(GraphDataset):
         new_graphs = []
         from espaloma.data.md import subtract_nonbonded_force
 
-        for i, g in enumerate(self.graphs):
+        for g in self.graphs:
             # `espaloma.data.md.subtract_nonbonded_force` will update g.nodes['g'].data['u_ref'] and g.nodes['g'].data['u_ref_prime'] in place. 
             # Clone QM reference into g.nodes['g'].data['u_qm'] and g.nodes['g'].data['u_qm_prime'], if not exist
             if 'u_qm' not in g.nodes['g'].data.keys():
@@ -608,6 +629,14 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
+        """
+        #
+        # NOTE
+        # ----
+        # THIS IS DEPRECATED AT THE MOMENT. SEE LINE 116 FOR MORE DETAILS.
+        # KEEPING THIS FOR FUTURE REFERENCE.
+        #
+        
         # Check if all inputs are equivalent (isomeric smiles)
         # If not, get average partial charges across different isomeric smiles (molecules)
         isomeric_smiles = [g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=False) for g in ds]
@@ -634,6 +663,18 @@ class CustomGraphDataset(GraphDataset):
                 mapped_smiles = ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
                 mapped_smiles_i = ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
                 assert mapped_smiles == mapped_smiles_i, f"Mapped isomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
+            # Other node features
+            for key in ["sum_q"]:
+                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
+            for key in ["q_ref", "idxs", "h0"]:
+                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
+        """
+
+        # Check if graphs are equivalent
+        for i in range(1, len(ds)):
+            mapped_smiles = ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
+            mapped_smiles_i = ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+            assert mapped_smiles == mapped_smiles_i, f"Mapped isomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
             # Other node features
             for key in ["sum_q"]:
                 np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
