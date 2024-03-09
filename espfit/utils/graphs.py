@@ -18,7 +18,7 @@ class CustomGraphDataset(GraphDataset):
 
     Methods
     -------
-    drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
+    drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
         Drop and merge duplicate nonisomeric smiles across different data sources.
 
     subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True):
@@ -53,7 +53,7 @@ class CustomGraphDataset(GraphDataset):
     >>> ds = GraphDataset.load(path)
     >>> # Drop and merge duplicate molecules. Save merged dataset as a new dataset.
     >>> # If `output_directory_path` is None, then the current working directory is used.
-    >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None)
+    >>> ds.drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None)
     >>> # Subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
     >>> # This will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
     >>> ds.subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True)
@@ -96,34 +96,25 @@ class CustomGraphDataset(GraphDataset):
         self.random_seed = random_seed
 
 
-    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path=None, isomeric=True):
-        """Drop and merge duplicate (non)isomeric smiles within the dataset.
+    def drop_duplicates(self, isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
+        """Drop duplicate (non)isomeric smiles within the dataset.
 
         Modifies list of esp.Graph's in place.
 
         Parameters
         ----------
-        save_merged_datest : boolean, default=True
-            If True, then merged datasets will be saved as a new dataset.
-        
-        dataset_name : str, default=misc
-            Name of the merged dataset.
+        isomeric : boolean, default=False
+            If True, then duplicated molecules are merged based on isomeric mapped smiles.
+            If False, then duplicated molecules are merged based on nonisomeric mapped smiles.
 
-        output_directory_path : str, default=None
-            Output directory path to save the merged dataset. 
-            If None, then the current working directory is used.
+            Unique molecules are identified by nonisomeric non-mapped smiles. 
+            Duplicated molecules (nonisomeric smiles) are merged into a single molecule based on 
+            the isomeric mapped smiles (isomeric=True) or nonisomeric mapped smiles (isomeric=False).
 
-        isoemric : boolean, default=True
-            If True, then isomeric smiles will be used to identify unique molecules.
-            
-            Note: isomeric=False is deprecated at the moment.
-            There is no guarantee that the atom order is consistent across different molecules
-            with the same nonisomeric smiles. In consistent atom order, results in different
-            mapped smiles (atom mapping). To concatenate graphs with different mapped smiles 
-            but with the same nonisomeric smiles, atom orders needs to be fixed. 
-            This is not implemented yet.
+            Note that there is no guarantee that the atom order (mapping) is consistent across different 
+            molecules with the same (non)isomeric smiles.
 
-            For example, different mapped smiles for the same nonisomeric smiles:
+            For example, molecules with same nonisomeric smiles could have different mapped smiles:
             
             [H:21][c:1]1[c:2]([c:4]([c:7]([c:5]([c:3]1[H:23])[H:25])[N:14]=[N:15][C:8]2=[C:10]3[N:16]\
             ([C:9](=[C:6]([C:11](=[O:19])[N:18]3[N:17]([C:12]2=[O:20])[H:31])[H:26])[C:13]([H:27])\
@@ -133,13 +124,28 @@ class CustomGraphDataset(GraphDataset):
             ([C:10](=[C:7]([C:6](=[O:2])[N:19]3[N:18]([C:5]2=[O:1])[H:28])[H:21])[C:20]([H:29])\
             ([H:30])[H:31])[H:27])[H:25])[H:23]
 
-            This will give you different g.nodes['n2'].data['idxs'] which is problematic when
-            concatenating graphs with different mapped smiles but the same nonisomeric smiles.
+            This will give different atom ordering, leading to, for example, different 
+            bond atom index (g.nodes['n2'].data['idxs']).
 
-            #If False, then nonisomeric smiles will be used to identify unique molecules.
-            #Note that partial charges will be averaged for the same nonisomeric smiles.
-            #This is because different 3D structures can have different partial charges 
-            #due to different conformations.
+            To alleviate this issue, nonisomeric smiles without atom mapping is used to identify 
+            unique molecules and remove any duplicated molecules. Then, duplicated molecules are
+            merged into a single molecule based on the isomeric mapped smiles (isomeric=True) or
+            nonisomeric mapped smiles (isomeric=False).
+
+        keep : boolean, default=True
+            If True, then duplicate entries dropped from the dataset will be added back to the unique entries
+            after the dropped duplicated entries are merged into a single molecule. If False, then duplicated
+            entries dropped will be removed.
+            
+        save_merged_datest : boolean, default=True
+            If True, then duplicated molecules are merged into a single molecule and saved as a new dataset.
+        
+        dataset_name : str, default=misc
+            Name of the merged dataset.
+
+        output_directory_path : str, default=None
+            Output directory path to save the merged dataset. 
+            If None, then the current working directory is used.
 
         Returns
         -------
@@ -150,54 +156,79 @@ class CustomGraphDataset(GraphDataset):
 
         if output_directory_path == None:
             output_directory_path = os.getcwd()
-
-        if isomeric == True:
-            _logger.info(f'Drop and merge duplicate isomeric smiles')
-        else:
-            #_logger.info(f'Drop and merge duplicate nonisomeric smiles')
-            raise ImportError(f'isomeric=False is deprecated at the moment')
-        smiles = [ g.mol.to_smiles(isomeric=isomeric, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
-        _logger.info(f'Found {len(smiles)} molecules')
-
-        # Unique entries
-        df = pd.DataFrame.from_dict({'smiles': smiles})
-        unique_index = df.drop_duplicates(keep=False).index.to_list()
-        unique_graphs = [self.graphs[_idx] for _idx in unique_index]
-        _logger.info(f'Found {len(unique_index)} unique molecules')
-
-        # Duplicated entries
-        index = df.duplicated(keep=False)   # Mark all duplicate entries True
-        duplicated_index = df[index].index.to_list()
-        _logger.info(f'Found {len(duplicated_index)} duplicated molecules')
         
-        # Get unique smiles and assign new molecule name `e.g. mol0001`
-        duplicated_df = df.iloc[duplicated_index]
-        duplicated_smiles = duplicated_df.smiles.unique().tolist()
-        molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
-        _logger.info(f'Found {len(molnames)} unique molecules within duplicate entries')
+        _logger.info(f'Remove duplicated nonisomeric smiles from dataset')
+        if isomeric == True:
+            _logger.info(f'Merge duplicated nonisomeric smiles into unique isomeric mapped smiles')
+        else:
+            _logger.info(f'Merge duplicated nonisomeric smiles into unique nonisomeric mapped smiles')
+        
+        # Get smiles
+        nonisomeric_smiles = [ g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
+        nonisomeric_mapped_smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) for g in self.graphs ]
+        isomeric_mapped_smiles = [ g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) for g in self.graphs ]
+        _logger.info(f'Found {len(self.graphs)} graph entries')
 
-        # Merge duplicate entries into a new single graph
-        duplicated_graphs = []
-        molnames_dict = {}
-        for molname, duplicated_smile in zip(molnames, duplicated_smiles):
-            # Map new molecule name with its unique smiles and dataframe indices
-            index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
-            molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
-            # Merge graphs
-            g = self._merge_graphs([self.graphs[_idx] for _idx in index])
-            duplicated_graphs.append(g)
-            # Save graphs (optional)
-            if save_merged_dataset == True:
-                # Notes: Create a temporary directory, `_output_directory_path`, to support pytest in test_utils_graphs.py.
-                # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
-                _output_directory_path = os.path.join(output_directory_path, dataset_name)
-                os.makedirs(_output_directory_path, exist_ok=True)
-                new_output_directory_path = os.path.join(_output_directory_path, molname)
-                g.save(new_output_directory_path)
+        # Create pandas dataframe
+        df = pd.DataFrame.from_dict({'nonisomeric_smiles': nonisomeric_smiles, 'nonisomeric_mapped_smiles': nonisomeric_mapped_smiles, 'isomeric_mapped_smiles': isomeric_mapped_smiles})
+        _logger.info(f'Unique nonisomeric smiles:        {len(df.nonisomeric_smiles.unique())}')
+        _logger.info(f'Unique nonisomeric mapped smiles: {len(df.nonisomeric_mapped_smiles.unique())}')
+        _logger.info(f'Unique isomeric mapped smiles:    {len(df.isomeric_mapped_smiles.unique())}')
 
-        # Update in place
-        new_graphs = unique_graphs + duplicated_graphs
-        _logger.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
+        # Get unique and duplicated entries using nonisomeric smiles (non-mapped)
+        unique_index = df.nonisomeric_smiles.drop_duplicates(keep=False).index.to_list()
+        unique_graphs = [self.graphs[_idx] for _idx in unique_index]
+        _logger.info(f'Drop all duplicated nonisomeric smiles from the dataset (unique nonisomeric smiles: {len(unique_index)})')
+
+        index = df.nonisomeric_smiles.duplicated(keep=False)   # Mark all duplicate entries True
+        duplicated_index = df[index].index.to_list()
+        assert len(unique_index) + len(duplicated_index) == len(self.graphs), \
+            f'Unique + duplicated nonisomeric smiles: {len(unique_index)} + {len(duplicated_index)} != total dataset ({len(self.graphs)})'
+        
+        if keep == True:
+            if isomeric == True:
+                _logger.info(f'Merge dropped duplicated nonisomeric smiles into unique isomeric mapped smiles')
+            else:
+                _logger.info(f'Merge dropped duplicated nonisomeric smiles into unique nonisomeric mapped smiles')
+
+            # Get unique (non)isomeric mapped smiles from duplicated nonisomeric smiles (non-mapped) and assign new molecule name `e.g. mol0001`
+            # Use copy() to prevent SettingWithCopyWarning when assigning new values to a new column
+            duplicated_df = df.iloc[duplicated_index].copy()
+            if isomeric == True:
+                duplicated_smiles = duplicated_df.isomeric_mapped_smiles.unique().tolist()
+                duplicated_df['smiles'] = duplicated_df.isomeric_mapped_smiles
+                _logger.info(f'Found {len(duplicated_smiles)} unique isomeric mapped smiles within duplicated {len(duplicated_index)} nonisomeric smiles')
+            else:
+                duplicated_smiles = duplicated_df.nonisomeric_mapped_smiles.unique().tolist()
+                duplicated_df['smiles'] = duplicated_df.nonisomeric_mapped_smiles
+                _logger.info(f'Found {len(duplicated_smiles)} unique nonisomeric mapped smiles within duplicated {len(duplicated_index)} nonisomeric smiles')
+            molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
+
+            # Merge duplicate entries into a new single graph
+            duplicated_graphs = []
+            #molnames_dict = {}   # This is never used but keep this to export the dictionary?
+            for molname, duplicated_smile in zip(molnames, duplicated_smiles):
+                # Map new molecule name with its unique smiles and dataframe indices
+                index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
+                #molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
+                # Merge graphs
+                g = self._merge_graphs(subset=[self.graphs[_idx] for _idx in index], isomeric_flag=isomeric)
+                duplicated_graphs.append(g)
+                # Save graphs (optional)
+                if save_merged_dataset == True:
+                    # Notes: Create a temporary directory, `_output_directory_path`, to support pytest in test_utils_graphs.py.
+                    # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
+                    _output_directory_path = os.path.join(output_directory_path, dataset_name)
+                    os.makedirs(_output_directory_path, exist_ok=True)
+                    new_output_directory_path = os.path.join(_output_directory_path, molname)
+                    g.save(new_output_directory_path)
+
+            new_graphs = unique_graphs + duplicated_graphs
+            _logger.info(f'Add back {len(duplicated_graphs)} merged duplicated (non)isomeric mapped smiles into the dataset')
+            _logger.info(f'Dataset reconstructed: {len(new_graphs)} unique molecules')
+        else:
+            new_graphs = unique_graphs
+            _logger.info(f'Dataset reconstructed: {len(new_graphs)} unique molecules')
         self.graphs = new_graphs
         del unique_graphs, duplicated_graphs, df, duplicated_df
 
@@ -611,12 +642,12 @@ class CustomGraphDataset(GraphDataset):
 
 
     @staticmethod
-    def _merge_graphs(ds):
+    def _merge_graphs(subset, isomeric_flag):
         """Merge multiple Graph instances into a single Graph.
 
         Parameters
         ----------
-        ds : list of espaloma.graphs.graph.Graph, default=None
+        subset : list of espaloma.graphs.graph.Graph, default=None
             The list of Graph instances to be merged. All Graphs in the list must be equivalent.
 
         Returns
@@ -629,68 +660,37 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
-        """
-        #
-        # NOTE
-        # ----
-        # THIS IS DEPRECATED AT THE MOMENT. SEE LINE 116 FOR MORE DETAILS.
-        # KEEPING THIS FOR FUTURE REFERENCE.
-        #
-        
-        # Check if all inputs are equivalent (isomeric smiles)
-        # If not, get average partial charges across different isomeric smiles (molecules)
-        isomeric_smiles = [g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=False) for g in ds]
-        unique_isomeric_smiles = set(isomeric_smiles)
-        if len(unique_isomeric_smiles) != 1:
-            n_atoms = ds[0].nodes['n1'].data['q_ref'].shape[0]
-            q_ref = torch.zeros(n_atoms, 1)
-            for unique_isomeric_smile in unique_isomeric_smiles:
-                index = [i for i, isomeric_smile in enumerate(isomeric_smiles) if isomeric_smile in unique_isomeric_smile][0]
-                q_ref += ds[index].nodes['n1'].data['q_ref']
-            q_ref = q_ref / len(set(isomeric_smiles))
-            # Update partial charges in-place
-            for i in range(len(ds)):
-                ds[i].nodes['n1'].data['q_ref'] = q_ref
-
         # Check if graphs are equivalent
-        for i in range(1, len(ds)):
-            # Mapped isomeric smiles
-            if len(unique_isomeric_smiles) != 1:
-                mapped_smiles = ds[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
-                mapped_smiles_i = ds[i].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True)
-                assert mapped_smiles == mapped_smiles_i, f"Mapped nonisomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
+        for i in range(1, len(subset)):
+            if isomeric_flag == True:
+                mapped_smiles = subset[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
+                mapped_smiles_i = subset[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Isomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
             else:
-                mapped_smiles = ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
-                mapped_smiles_i = ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-                assert mapped_smiles == mapped_smiles_i, f"Mapped isomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
+                mapped_smiles = subset[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
+                mapped_smiles_i = subset[i].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Nonisomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
             # Other node features
             for key in ["sum_q"]:
-                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
-            for key in ["q_ref", "idxs", "h0"]:
-                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
-        """
+                np.testing.assert_array_equal(subset[0].nodes['g'].data[key].flatten().numpy(), subset[i].nodes['g'].data[key].flatten().numpy())
+            for key in ["q_ref", "h0"]:
+                np.testing.assert_array_equal(subset[0].nodes['n1'].data[key].flatten().numpy(), subset[i].nodes['n1'].data[key].flatten().numpy())
+            # As long as mapped smiles are the same, we don't need to compare n1, n2, n3 nodes. Maybe we don't need the above either?
+            #np.testing.assert_array_equal(subset[0].nodes['n1'].data['idxs'].flatten().numpy(), subset[i].nodes['n1'].data['idxs'].flatten().numpy())
+            #np.testing.assert_array_equal(subset[0].nodes['n2'].data['idxs'].flatten().numpy(), subset[i].nodes['n2'].data['idxs'].flatten().numpy())
+            #np.testing.assert_array_equal(subset[0].nodes['n3'].data['idxs'].flatten().numpy(), subset[i].nodes['n3'].data['idxs'].flatten().numpy())
 
-        # Check if graphs are equivalent
-        for i in range(1, len(ds)):
-            mapped_smiles = ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
-            mapped_smiles_i = ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-            assert mapped_smiles == mapped_smiles_i, f"Mapped isomeric smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
-            # Other node features
-            for key in ["sum_q"]:
-                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
-            for key in ["q_ref", "idxs", "h0"]:
-                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
 
         # Merge graphs
-        g = copy.deepcopy(ds[0])
+        g = copy.deepcopy(subset[0])
         for key in g.nodes['g'].data.keys():
             if key not in ["sum_q"]:
-                for i in range(1, len(ds)):
-                    g.nodes['g'].data[key] = torch.cat((g.nodes['g'].data[key], ds[i].nodes['g'].data[key]), dim=-1)
+                for i in range(1, len(subset)):
+                    g.nodes['g'].data[key] = torch.cat((g.nodes['g'].data[key], subset[i].nodes['g'].data[key]), dim=-1)
         for key in g.nodes['n1'].data.keys():
             if key not in ["q_ref", "idxs", "h0"]:
-                for i in range(1, len(ds)):
-                    g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], ds[i].nodes['n1'].data[key]), dim=1)
+                for i in range(1, len(subset)):
+                    g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], subset[i].nodes['n1'].data[key]), dim=1)
         
         return g
 
