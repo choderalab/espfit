@@ -660,26 +660,65 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
+        if isomeric_flag == True:
+            mapped_smiles = subset[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+        else:
+            mapped_smiles = subset[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
+        _logger.info(f'Merge {len(subset)} graphs: {mapped_smiles}')
+
         # Check if graphs are equivalent
+        charge_index = []    # book keep indices with inconsistent partial charges
+        atol = rtol = 1e-2   # charge tolerance
         for i in range(1, len(subset)):
             if isomeric_flag == True:
-                mapped_smiles = subset[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) 
                 mapped_smiles_i = subset[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
                 assert mapped_smiles == mapped_smiles_i, f"Isomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
             else:
-                mapped_smiles = subset[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
                 mapped_smiles_i = subset[i].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True)
-                assert mapped_smiles == mapped_smiles_i, f"Nonisomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
-            # Other node features
-            for key in ["sum_q"]:
-                np.testing.assert_array_equal(subset[0].nodes['g'].data[key].flatten().numpy(), subset[i].nodes['g'].data[key].flatten().numpy())
-            for key in ["q_ref", "h0"]:
-                np.testing.assert_array_equal(subset[0].nodes['n1'].data[key].flatten().numpy(), subset[i].nodes['n1'].data[key].flatten().numpy())
-            # As long as mapped smiles are the same, we don't need to compare n1, n2, n3 nodes. Maybe we don't need the above either?
-            #np.testing.assert_array_equal(subset[0].nodes['n1'].data['idxs'].flatten().numpy(), subset[i].nodes['n1'].data['idxs'].flatten().numpy())
-            #np.testing.assert_array_equal(subset[0].nodes['n2'].data['idxs'].flatten().numpy(), subset[i].nodes['n2'].data['idxs'].flatten().numpy())
-            #np.testing.assert_array_equal(subset[0].nodes['n3'].data['idxs'].flatten().numpy(), subset[i].nodes['n3'].data['idxs'].flatten().numpy())
-
+                assert mapped_smiles == mapped_smiles_i, f"Nonisomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"            
+            # Net charge
+            np.testing.assert_array_equal(subset[0].nodes['g'].data['sum_q'].flatten().numpy(), subset[i].nodes['g'].data['sum_q'].flatten().numpy())
+            # Input node features
+            np.testing.assert_array_equal(subset[0].nodes['n1'].data['h0'].flatten().numpy(), subset[i].nodes['n1'].data['h0'].flatten().numpy())
+            # Atom ordering: As long as mapped smiles are the same, we don't need to compare n1, n2, n3 nodes?
+            np.testing.assert_array_equal(subset[0].nodes['n1'].data['idxs'].flatten().numpy(), subset[i].nodes['n1'].data['idxs'].flatten().numpy())
+            np.testing.assert_array_equal(subset[0].nodes['n2'].data['idxs'].flatten().numpy(), subset[i].nodes['n2'].data['idxs'].flatten().numpy())
+            np.testing.assert_array_equal(subset[0].nodes['n3'].data['idxs'].flatten().numpy(), subset[i].nodes['n3'].data['idxs'].flatten().numpy())
+            # Partial charges: There could be inconsistency due to different 3D conformers generated during partial charge calculation process.
+            charge_boolean = np.allclose(subset[0].nodes['n1'].data['q_ref'].flatten().numpy(), subset[i].nodes['n1'].data['q_ref'].flatten().numpy(), rtol=rtol, atol=atol)
+            if charge_boolean == False:
+                charge_diff = np.abs(subset[0].nodes['n1'].data['q_ref'].flatten().numpy() - subset[i].nodes['n1'].data['q_ref'].flatten().numpy())
+                _logger.warning(f"Entry {i}: Maximum charge difference {charge_diff.max()} is higher than {atol} when compared to the first graph")
+                charge_index.append(i)
+        
+        # Handle partial charges if inconsistent
+        if charge_index:
+            # Get indices with unique partial charges
+            # Book keep indices with unique partial charges starting from the first graph
+            unique_charge_index = [0]
+            for i in charge_index:
+                is_equal = []
+                for j in unique_charge_index:
+                    # Extract the arrays to compare
+                    arr_i = subset[i].nodes['n1'].data['q_ref'].flatten().numpy()
+                    arr_j = subset[j].nodes['n1'].data['q_ref'].flatten().numpy()
+                    is_equal.append(np.array_equal(arr_i, arr_j))
+                # Check if all False
+                if not any(is_equal):
+                    unique_charge_index.append(i)
+            # Average partial charges
+            _logger.info(f'Average partial charges ({unique_charge_index})...')
+            q_ref = subset[0].nodes['n1'].data['q_ref']
+            _logger.info(f'Entry #0: {q_ref.flatten().numpy()}')
+            for index in unique_charge_index[1:]:
+                _q_ref = subset[index].nodes['n1'].data['q_ref']
+                _logger.info(f'Entry #{index}: {_q_ref.flatten().numpy()}')
+                q_ref += _q_ref
+            q_ref = q_ref / len(unique_charge_index)
+            # Update partial charges in-place
+            for i in range(len(subset)):
+                subset[i].nodes['n1'].data['q_ref'] = q_ref
+            _logger.info(f'Averaged partial charges: {subset[0].nodes["n1"].data["q_ref"].flatten().numpy()}')
 
         # Merge graphs
         g = copy.deepcopy(subset[0])
