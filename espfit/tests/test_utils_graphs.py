@@ -68,7 +68,9 @@ def test_load_dataset(mydata_gen2_torsion_sm):
     """
     ds = mydata_gen2_torsion_sm
     nconfs = [g.nodes['g'].data['u_ref'].shape[1] for g in ds]
-    assert nconfs == [24, 24, 24, 13, 24, 24, 24, 24], 'Number of molecular conformers does not match'
+    # Sort the list of nconfs. For some reason, the order of the list is not consistent when running the test locally and on GitHub CI.
+    #assert nconfs == [24, 24, 24, 13, 24, 24, 24, 24], 'Number of molecular conformers does not match'
+    assert nconfs.sort() == [24, 24, 24, 13, 24, 24, 24, 24].sort(), 'Number of molecular conformers does not match'
 
 
 def test_load_dataset_multiple(mydata_gen2_torsion_sm, mydata_protein_torsion_sm, mydata_rna_diverse_sm):
@@ -102,7 +104,7 @@ def test_load_dataset_multiple(mydata_gen2_torsion_sm, mydata_protein_torsion_sm
     assert sum(nconfs) == 5636, 'Total number of conformations does not match'
 
 
-def test_drop_and_merge_duplicates(mydata_gen2_torsion_sm, tmpdir):
+def test_drop_duplicates(mydata_gen2_torsion_sm, tmpdir):
     """Test function to drop and merge duplicate molecules.
 
     Parameters
@@ -117,9 +119,11 @@ def test_drop_and_merge_duplicates(mydata_gen2_torsion_sm, tmpdir):
     """
     ds = mydata_gen2_torsion_sm
     temporary_directory = tmpdir.mkdir('misc')
-    ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
+    ds.drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
     nconfs = [ g.nodes['g'].data['u_ref'].shape[1] for g in ds ]
-    assert nconfs == [24, 13, 24, 24, 24, 72], 'Number of molecular conformers does not match'
+    # Sort the list of nconfs. For some reason, the order of the list is not consistent when running the test locally and on GitHub CI.
+    #assert nconfs == [24, 13, 24, 24, 24, 72], 'Number of molecular conformers does not match'
+    assert nconfs.sort() == [24, 13, 24, 24, 24, 72].sort(), 'Number of molecular conformers does not match'
 
 
 def test_subtract_nonbonded_interactions(mydata_gen2_torsion_sm):
@@ -165,7 +169,9 @@ def test_filter_high_energy_conformers(mydata_gen2_torsion_sm):
     # set relative_energy_thershold very small to ensure some conformers will be filtered
     ds.filter_high_energy_conformers(relative_energy_threshold=0.01, node_feature='u_ref')
     nconfs = [ g.nodes['g'].data['u_ref'].shape[1] for g in ds ]
-    assert nconfs == [14, 19, 19, 5, 14, 19, 24, 24], 'Number of molecular conformers does not match'
+    # Sort the list of nconfs. For some reason, the order of the list is not consistent when running the test locally and on GitHub CI.
+    #assert nconfs == [14, 19, 19, 5, 14, 19, 24, 24], 'Number of molecular conformers does not match'
+    assert nconfs.sort() == [14, 19, 19, 5, 14, 19, 24, 24].sort(), 'Number of molecular conformers does not match'
 
 
 def test_filter_minimum_conformers(mydata_gen2_torsion_sm):

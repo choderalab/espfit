@@ -15,7 +15,7 @@ def test_create_test_espaloma_system(tmpdir):
     -------
     c : espfit.app.sampler.SetupSampler
     """
-    biopolymer_file = files('espfit').joinpath('data/target/testsystems/nucleoside/pdbfixer_min.pdb')   # PosixPath
+    biopolymer_file = files('espfit').joinpath('data/target/testsystems/nucleoside/target.pdb')   # PosixPath
     c = SetupSampler(small_molecule_forcefield=ESPALOMA_FORCEFIELD, output_directory_path=str(tmpdir))
     c.create_system(biopolymer_file=biopolymer_file)  # Exports solvated system as pdb file automatically.
 
@@ -31,7 +31,7 @@ def test_create_nucleoside_espaloma_system(tmpdir):
     -------
     None
     """
-    biopolymer_file = files('espfit').joinpath('data/target/testsystems/nucleoside/pdbfixer_min.pdb')
+    biopolymer_file = files('espfit').joinpath('data/target/testsystems/nucleoside/target.pdb')
     c = SetupSampler(small_molecule_forcefield=ESPALOMA_FORCEFIELD, output_directory_path=str(tmpdir))
     c.create_system(biopolymer_file=biopolymer_file)
 
@@ -100,7 +100,7 @@ def test_create_multi_protein_ligand_espaloma_system(tmpdir):
     c.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)
 
 
-def test_export_system(test_create_test_espaloma_system, tmpdir):
+def test_export_system(test_create_test_espaloma_system):
     """Test exporting the system to xml files.
     
     Parameters
@@ -108,18 +108,15 @@ def test_export_system(test_create_test_espaloma_system, tmpdir):
     test_create_test_espaloma_system : espfit.app.sampler.SetupSampler
         Test system instance.
 
-    tmpdir : tmpdir fixture from pytest
-
     Returns
     -------
     None
     """
     c = test_create_test_espaloma_system
-    c.output_directory_path = str(tmpdir)
     c.export_xml()
+    
 
-
-def test_export_system_change_outdir(test_create_test_espaloma_system, tmpdir):
+def test_export_system_change_outdir(test_create_test_espaloma_system):
     """Test exporting the system to xml files.
     
     Change the output directory path and check if the new directory is created.
@@ -129,18 +126,16 @@ def test_export_system_change_outdir(test_create_test_espaloma_system, tmpdir):
     test_create_test_espaloma_system : espfit.app.sampler.SetupSampler
         Test system instance.
 
-    tmpdir : tmpdir fixture from pytest
-
     Returns
     -------
     None
     """
+    import os
     c = test_create_test_espaloma_system
-    old_outdir = c.output_directory_path
-    c.export_xml(output_directory_path=str(tmpdir.join('newdir')))
-    new_outdir = c.output_directory_path
+    old_output_directory_path = c.output_directory_path
+    c.export_xml(output_directory_path=os.path.join(old_output_directory_path, 'newdir'))
     
-    assert old_outdir != new_outdir
+    assert old_output_directory_path != c.output_directory_path
 
 
 def test_minimize(test_create_test_espaloma_system):
@@ -156,10 +151,14 @@ def test_minimize(test_create_test_espaloma_system):
     None
     """
     c = test_create_test_espaloma_system
-    c.minimize(maxIterations=10)
+    old_maxIterations = c.maxIterations
+    c.maxIterations = 9   # change default
+    c.minimize()
+
+    assert old_maxIterations != c.maxIterations
 
 
-def test_standard_md(test_create_test_espaloma_system, tmpdir):
+def test_standard_md(test_create_test_espaloma_system):
     """Test standard md simulation.
 
     Parameters
@@ -172,12 +171,13 @@ def test_standard_md(test_create_test_espaloma_system, tmpdir):
     None
     """
     c = test_create_test_espaloma_system
-    c.output_directory_path = str(tmpdir)
-    c.minimize(maxIterations=10)  # Minimize the system before running the simulation to avoid Energy NaN.
-    c.run(nsteps=10)
+    c.maxIterations = 10   # update maxIterations to speed up the test
+    c.nsteps = 10             
+    c.minimize()           # minimize the system before running the simulation to avoid Energy NaN.
+    c.run()
 
 
-def test_create_system_from_xml(test_create_test_espaloma_system, tmpdir):
+def test_create_system_from_xml(test_create_test_espaloma_system):
     """Test creating a system from loading existing xml files.
     
     Parameters
@@ -185,20 +185,20 @@ def test_create_system_from_xml(test_create_test_espaloma_system, tmpdir):
     test_create_test_espaloma_system : espfit.app.sampler.SetupSampler
         Test system instance.
 
-    tmpdir : tmpdir fixture from pytest
-
     Returns
     -------
     None
     """
+    import os
+    import glob
+    
     c = test_create_test_espaloma_system
-    c.output_directory_path = str(tmpdir)
     c.export_xml()
 
-    c2 = SetupSampler.from_xml(input_directory_path=str(tmpdir))
-    c2.export_xml(output_directory_path=str(tmpdir))
+    c2 = SetupSampler.from_xml(input_directory_path=c.output_directory_path)
+    c2.export_xml(output_directory_path=c.output_directory_path)
 
     # Check number of exported files. Check state.xml as a representative file.
-    import glob
-    n_files = len(glob.glob(str(tmpdir.join('state*.xml'))))
+    # If the same file exists, then suffix number will be added to the file name. 
+    n_files = len(glob.glob(os.path.join(c.output_directory_path, 'state*.xml')))
     assert n_files == 2

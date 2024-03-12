@@ -25,4 +25,4 @@ logging.basicConfig(format='[%(levelname)s] %(asctime)s %(message)s', level=logg
 #from .espfit import *
 
 
-#from ._version import __version__
+from ._version import __version__

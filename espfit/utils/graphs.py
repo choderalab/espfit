@@ -18,7 +18,7 @@ class CustomGraphDataset(GraphDataset):
 
     Methods
     -------
-    drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
+    drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
         Drop and merge duplicate nonisomeric smiles across different data sources.
 
     subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True):
@@ -27,13 +27,13 @@ class CustomGraphDataset(GraphDataset):
     filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref'):
         Filter high energy conformers and ensure minimum number of conformers.
 
-    filter_minimum_conformers(n_conformer_threshold=3):
+    filter_minimum_conformers(n_conformer_threshold=5):
         Filter molecules with conformers below given threshold.
 
-    compute_baseline_energy_force(forcefield_list=['openff-2.0.0']):
+    compute_baseline_energy_force(forcefield_list=['openff-2.1.0']):
         Compute energies and forces using other force fields.
 
-    reshape_conformation_size(n_confs=50):
+    reshape_conformation_size(n_confs=50, include_min_energy_conf=False):
         Reshape conformation size.
     
     compute_relative_energy():
@@ -53,7 +53,7 @@ class CustomGraphDataset(GraphDataset):
     >>> ds = GraphDataset.load(path)
     >>> # Drop and merge duplicate molecules. Save merged dataset as a new dataset.
     >>> # If `output_directory_path` is None, then the current working directory is used.
-    >>> ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=None)
+    >>> ds.drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None)
     >>> # Subtract nonbonded energies and forces from QC reference (e.g. subtract all valence and ele interactions)
     >>> # This will update u_ref and u_ref_relative in-place. copy of raw u_ref (QM reference) will be copied to u_qm.
     >>> ds.subtract_nonbonded_interactions(subtract_vdw=False, subtract_ele=True)
@@ -62,9 +62,9 @@ class CustomGraphDataset(GraphDataset):
     >>> # Filter high energy conformers (u_ref: QM reference after nonbonded interactions are subtracted)
     >>> ds.filter_high_energy_conformers(relative_energy_threshold=0.1, node_feature='u_ref')
     >>> # Filter conformers below certain number
-    >>> ds.filter_minimum_conformers(n_conformer_threshold=3)
+    >>> ds.filter_minimum_conformers(n_conformer_threshold=5)
     >>> # Compute energies and forces using other force fields
-    >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.0.0'])
+    >>> ds.compute_baseline_energy_force(forcefield_list=['openff-2.1.0'])
     >>> # Regenerate improper torsions in-place
     >>> from espaloma.graphs.utils.regenerate_impropers import regenerate_impropers
     >>> ds.apply(regenerate_impropers, in_place=True)
@@ -75,7 +75,7 @@ class CustomGraphDataset(GraphDataset):
     """
 
 
-    def __init__(self, graphs=[], reference_forcefield='openff-2.0.0', random_seed=2666):
+    def __init__(self, graphs=[], reference_forcefield='openff-2.1.0', random_seed=2666):
         """Construct custom GraphDataset instance to prepare QC dataset for espaloma training.
 
         Parameters
@@ -83,7 +83,7 @@ class CustomGraphDataset(GraphDataset):
         graphs : list of espaloma.graphs.graph.Graph, default=[]
             DGL graphs loaded from `espaloma.data.dataset.GraphDataset.load`.
              
-        reference_forcefield : str, default=openff-2.0.0
+        reference_forcefield : str, default=openff-2.1.0
             Reference force field used to compute force field parameters if not present in espaloma.
             The default behavior is to compute the LJ parameters with `reference_forcefield`.
         
@@ -96,15 +96,49 @@ class CustomGraphDataset(GraphDataset):
         self.random_seed = random_seed
 
 
-    def drop_and_merge_duplicates(self, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
-        """Drop and merge duplicate nonisomeric smiles across different data sources.
+    def drop_duplicates(self, isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=None):
+        """Drop duplicate (non)isomeric smiles within the dataset.
 
         Modifies list of esp.Graph's in place.
 
         Parameters
         ----------
+        isomeric : boolean, default=False
+            If True, then duplicated molecules are merged based on isomeric mapped smiles.
+            If False, then duplicated molecules are merged based on nonisomeric mapped smiles.
+
+            Unique molecules are identified by nonisomeric non-mapped smiles. 
+            Duplicated molecules (nonisomeric smiles) are merged into a single molecule based on 
+            the isomeric mapped smiles (isomeric=True) or nonisomeric mapped smiles (isomeric=False).
+
+            Note that there is no guarantee that the atom order (mapping) is consistent across different 
+            molecules with the same (non)isomeric smiles.
+
+            For example, molecules with same nonisomeric smiles could have different mapped smiles:
+            
+            [H:21][c:1]1[c:2]([c:4]([c:7]([c:5]([c:3]1[H:23])[H:25])[N:14]=[N:15][C:8]2=[C:10]3[N:16]\
+            ([C:9](=[C:6]([C:11](=[O:19])[N:18]3[N:17]([C:12]2=[O:20])[H:31])[H:26])[C:13]([H:27])\
+            ([H:28])[H:29])[H:30])[H:24])[H:22]
+            
+            [H:22][c:11]1[c:12]([c:14]([c:16]([c:15]([c:13]1[H:24])[H:26])[N:4]=[N:3][C:8]2=[C:9]3[N:17]\
+            ([C:10](=[C:7]([C:6](=[O:2])[N:19]3[N:18]([C:5]2=[O:1])[H:28])[H:21])[C:20]([H:29])\
+            ([H:30])[H:31])[H:27])[H:25])[H:23]
+
+            This will give different atom ordering, leading to, for example, different 
+            bond atom index (g.nodes['n2'].data['idxs']).
+
+            To alleviate this issue, nonisomeric smiles without atom mapping is used to identify 
+            unique molecules and remove any duplicated molecules. Then, duplicated molecules are
+            merged into a single molecule based on the isomeric mapped smiles (isomeric=True) or
+            nonisomeric mapped smiles (isomeric=False).
+
+        keep : boolean, default=True
+            If True, then duplicate entries dropped from the dataset will be added back to the unique entries
+            after the dropped duplicated entries are merged into a single molecule. If False, then duplicated
+            entries dropped will be removed.
+            
         save_merged_datest : boolean, default=True
-            If True, then merged datasets will be saved as a new dataset.
+            If True, then duplicated molecules are merged into a single molecule and saved as a new dataset.
         
         dataset_name : str, default=misc
             Name of the merged dataset.
@@ -112,7 +146,7 @@ class CustomGraphDataset(GraphDataset):
         output_directory_path : str, default=None
             Output directory path to save the merged dataset. 
             If None, then the current working directory is used.
-        
+
         Returns
         -------
         None
@@ -122,50 +156,79 @@ class CustomGraphDataset(GraphDataset):
 
         if output_directory_path == None:
             output_directory_path = os.getcwd()
-
-        _logger.info(f'Drop and merge duplicate smiles')
-        smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
-        _logger.info(f'Found {len(smiles)} molecules')
-
-        # Unique entries
-        df = pd.DataFrame.from_dict({'smiles': smiles})
-        unique_index = df.drop_duplicates(keep=False).index.to_list()
-        unique_graphs = [self.graphs[_idx] for _idx in unique_index]
-        _logger.info(f'Found {len(unique_index)} unique molecules')
-
-        # Duplicated entries
-        index = df.duplicated(keep=False)   # Mark all duplicate entries True
-        duplicated_index = df[index].index.to_list()
-        _logger.info(f'Found {len(duplicated_index)} duplicated molecules')
         
-        # Get unique smiles and assign new molecule name `e.g. mol0001`
-        duplicated_df = df.iloc[duplicated_index]
-        duplicated_smiles = duplicated_df.smiles.unique().tolist()
-        molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
-        _logger.info(f'Found {len(molnames)} unique molecules within duplicate entries')
+        _logger.info(f'Remove duplicated nonisomeric smiles from dataset')
+        if isomeric == True:
+            _logger.info(f'Merge duplicated nonisomeric smiles into unique isomeric mapped smiles')
+        else:
+            _logger.info(f'Merge duplicated nonisomeric smiles into unique nonisomeric mapped smiles')
+        
+        # Get smiles
+        nonisomeric_smiles = [ g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=False) for g in self.graphs ]
+        nonisomeric_mapped_smiles = [ g.mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) for g in self.graphs ]
+        isomeric_mapped_smiles = [ g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) for g in self.graphs ]
+        _logger.info(f'Found {len(self.graphs)} graph entries')
 
-        # Merge duplicate entries into a new single graph
-        duplicated_graphs = []
-        molnames_dict = {}
-        for molname, duplicated_smile in zip(molnames, duplicated_smiles):
-            # Map new molecule name with its unique smiles and dataframe indices
-            index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
-            molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
-            # Merge graphs
-            g = self._merge_graphs([self.graphs[_idx] for _idx in index])
-            duplicated_graphs.append(g)
-            # Save graphs (optional)
-            if save_merged_dataset == True:
-                # Notes: Create a temporary directory, `_output_directory_path`, to support pytest in test_utils_graphs.py.
-                # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
-                _output_directory_path = os.path.join(output_directory_path, dataset_name)
-                os.makedirs(_output_directory_path, exist_ok=True)
-                output_directory_path = os.path.join(_output_directory_path, molname)
-                g.save(output_directory_path)
+        # Create pandas dataframe
+        df = pd.DataFrame.from_dict({'nonisomeric_smiles': nonisomeric_smiles, 'nonisomeric_mapped_smiles': nonisomeric_mapped_smiles, 'isomeric_mapped_smiles': isomeric_mapped_smiles})
+        _logger.info(f'Unique nonisomeric smiles:        {len(df.nonisomeric_smiles.unique())}')
+        _logger.info(f'Unique nonisomeric mapped smiles: {len(df.nonisomeric_mapped_smiles.unique())}')
+        _logger.info(f'Unique isomeric mapped smiles:    {len(df.isomeric_mapped_smiles.unique())}')
 
-        # Update in place
-        new_graphs = unique_graphs + duplicated_graphs
-        _logger.info(f'Graph dataset reconstructed: {len(new_graphs)} unique molecules')
+        # Get unique and duplicated entries using nonisomeric smiles (non-mapped)
+        unique_index = df.nonisomeric_smiles.drop_duplicates(keep=False).index.to_list()
+        unique_graphs = [self.graphs[_idx] for _idx in unique_index]
+        _logger.info(f'Drop all duplicated nonisomeric smiles from the dataset (unique nonisomeric smiles: {len(unique_index)})')
+
+        index = df.nonisomeric_smiles.duplicated(keep=False)   # Mark all duplicate entries True
+        duplicated_index = df[index].index.to_list()
+        assert len(unique_index) + len(duplicated_index) == len(self.graphs), \
+            f'Unique + duplicated nonisomeric smiles: {len(unique_index)} + {len(duplicated_index)} != total dataset ({len(self.graphs)})'
+        
+        if keep == True:
+            if isomeric == True:
+                _logger.info(f'Merge dropped duplicated nonisomeric smiles into unique isomeric mapped smiles')
+            else:
+                _logger.info(f'Merge dropped duplicated nonisomeric smiles into unique nonisomeric mapped smiles')
+
+            # Get unique (non)isomeric mapped smiles from duplicated nonisomeric smiles (non-mapped) and assign new molecule name `e.g. mol0001`
+            # Use copy() to prevent SettingWithCopyWarning when assigning new values to a new column
+            duplicated_df = df.iloc[duplicated_index].copy()
+            if isomeric == True:
+                duplicated_smiles = duplicated_df.isomeric_mapped_smiles.unique().tolist()
+                duplicated_df['smiles'] = duplicated_df.isomeric_mapped_smiles
+                _logger.info(f'Found {len(duplicated_smiles)} unique isomeric mapped smiles within duplicated {len(duplicated_index)} nonisomeric smiles')
+            else:
+                duplicated_smiles = duplicated_df.nonisomeric_mapped_smiles.unique().tolist()
+                duplicated_df['smiles'] = duplicated_df.nonisomeric_mapped_smiles
+                _logger.info(f'Found {len(duplicated_smiles)} unique nonisomeric mapped smiles within duplicated {len(duplicated_index)} nonisomeric smiles')
+            molnames = [ f'mol{i:04d}' for i in range(len(duplicated_smiles)) ]
+
+            # Merge duplicate entries into a new single graph
+            duplicated_graphs = []
+            #molnames_dict = {}   # This is never used but keep this to export the dictionary?
+            for molname, duplicated_smile in zip(molnames, duplicated_smiles):
+                # Map new molecule name with its unique smiles and dataframe indices
+                index = duplicated_df[duplicated_df['smiles'] == duplicated_smile].index.tolist()
+                #molnames_dict[molname] = {'smiles': duplicated_smiles, 'index': index}
+                # Merge graphs
+                g = self._merge_graphs(subset=[self.graphs[_idx] for _idx in index], isomeric_flag=isomeric)
+                duplicated_graphs.append(g)
+                # Save graphs (optional)
+                if save_merged_dataset == True:
+                    # Notes: Create a temporary directory, `_output_directory_path`, to support pytest in test_utils_graphs.py.
+                    # Temporary directory needs to be created beforehand for `test_drop_and_merge_duplicates`.
+                    _output_directory_path = os.path.join(output_directory_path, dataset_name)
+                    os.makedirs(_output_directory_path, exist_ok=True)
+                    new_output_directory_path = os.path.join(_output_directory_path, molname)
+                    g.save(new_output_directory_path)
+
+            new_graphs = unique_graphs + duplicated_graphs
+            _logger.info(f'Add back {len(duplicated_graphs)} merged duplicated (non)isomeric mapped smiles into the dataset')
+            _logger.info(f'Dataset reconstructed: {len(new_graphs)} unique molecules')
+        else:
+            new_graphs = unique_graphs
+            _logger.info(f'Dataset reconstructed: {len(new_graphs)} unique molecules')
         self.graphs = new_graphs
         del unique_graphs, duplicated_graphs, df, duplicated_df
 
@@ -204,10 +267,11 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Subtract nonbonded interactions from QC reference')
         new_graphs = []
         from espaloma.data.md import subtract_nonbonded_force
 
-        for i, g in enumerate(self.graphs):
+        for g in self.graphs:
             # `espaloma.data.md.subtract_nonbonded_force` will update g.nodes['g'].data['u_ref'] and g.nodes['g'].data['u_ref_prime'] in place. 
             # Clone QM reference into g.nodes['g'].data['u_qm'] and g.nodes['g'].data['u_qm_prime'], if not exist
             if 'u_qm' not in g.nodes['g'].data.keys():
@@ -223,8 +287,8 @@ class CustomGraphDataset(GraphDataset):
                 # subtract_nonbonded_force() will return the coulomb interactions using the predefined partial charges.
                 #
                 # Reference:
-                # [1] https://github.com/choderalab/espaloma/blob/main/espaloma/data/md.py#L503C19-L503C19
-                # [2] https://github.com/openmm/openmmforcefields/blob/637d551a4408cc6145529cd9dc30e267f4178367/openmmforcefields/generators/template_generators.py#L1432
+                # [1] https://github.com/choderalab/espaloma/blob/main/espaloma/data/md.py#L503
+                # [2] https://github.com/openmm/openmmforcefields/blob/637d551a4408cc6145529cd9dc30e267f4178367/openmmforcefields/generators/template_generators.py#L607
                 g = subtract_nonbonded_force(g, forcefield=self.reference_forcefield, subtract_charges=True)
             elif subtract_vdw == False and subtract_ele == False:
                 g = subtract_nonbonded_force(g, forcefield=self.reference_forcefield, subtract_charges=False)
@@ -255,6 +319,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Filter high energy conformers with relative energy threshold {relative_energy_threshold}')
         if node_feature == None:
             raise Exception(f'Please specify the node feature name under node type `g`')
 
@@ -278,20 +343,21 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def filter_minimum_conformers(self, n_conformer_threshold=3):
+    def filter_minimum_conformers(self, n_conformer_threshold=5):
         """Filter molecules with conformers below given threshold.
 
         Modifies list of esp.Graph's in place.
     
         Parameters
         ----------        
-        n_conformer_threshold : int, default=3
+        n_conformer_threshold : int, default=5
             The minimium number of conformers per entry.
 
         Returns
         -------
         None
         """
+        _logger.info(f'Filter molecules with conformers below {n_conformer_threshold} conformers')
         new_graphs = []
         for i, g in enumerate(self.graphs):
             n_confs = g.nodes['n1'].data['xyz'].shape[1]
@@ -303,15 +369,15 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def compute_baseline_energy_force(self, forcefield_list=['openff-2.0.0']):
+    def compute_baseline_energy_force(self, forcefield_list=['openff-2.1.0']):
         """Compute energies and forces using other force fields.
 
-        New node features are added to g.nodes['g']. For example, g.nodes['g'].data['u_openff-2.0.0'] and 
-        g.nodes['n1'].data['u_openff-2.0.0_prime'] will be created for energies and forces, respectively.
+        New node features are added to g.nodes['g']. For example, g.nodes['g'].data['u_openff-2.1.0'] and 
+        g.nodes['n1'].data['u_openff-2.1.0_prime'] will be created for energies and forces, respectively.
         
         Parameters
         ----------
-        forcefield_list : list, default=['openff-2.0.0']
+        forcefield_list : list, default=['openff-2.1.0']
             Currently supports the following force fields:
             'gaff-1.81', 'gaff-2.11', 'openff-1.2.0', 'openff-2.0.0', 'openff-2.1.0', 
             'amber14-all.xml', 'amber/protein.ff14SBonlysc.xml'
@@ -338,82 +404,89 @@ class CustomGraphDataset(GraphDataset):
         from openmm.unit import Quantity
         from openmmforcefields.generators import SystemGenerator
 
+        _logger.info(f'Compute energies and forces using other force fields')
+
         # Simulation Specs (not important, just place holders)
         TEMPERATURE = 350 * unit.kelvin
         STEP_SIZE = 1.0 * unit.femtosecond
         COLLISION_RATE = 1.0 / unit.picosecond
 
         if not all(_ in self.available_forcefields for _ in forcefield_list):
-            raise Exception(f'{forcefield} force field not supported. Supported force fields are {SUPPORTED_FORCEFIELD_LIST}.')
+            raise Exception(f'{forcefield} force field not supported. Supported force fields are {self.available_forcefields}.')
 
         new_graphs = []
-        for i, g in enumerate(self.graphs):
-            for forcefield in forcefield_list:
-                if forcefield.startswith('gaff') or forcefield.startswith('openff'):
-                    generator = SystemGenerator(
-                        small_molecule_forcefield=forcefield,
-                        molecules=[g.mol],
-                        forcefield_kwargs={"constraints": None, "removeCMMotion": False},
-                    )
-                    name = forcefield
-                elif forcefield.startswith('amber') or forcefield.startswith('protein'):
-                    generator = SystemGenerator(
-                        forcefields=[forcefield],
-                        molecules=[g.mol],
-                        forcefield_kwargs={"constraints": None, "removeCMMotion": False},
-                    )
-                    if forcefield == 'amber14-all.xml':
-                        name = 'amber14sb'
-                    elif forcefield == 'amber/protein.ff14SBonlysc.xml':
-                        name = 'amber14sb_onlysc'
-                else:
-                    import warnings
-                    warnings.warn(f'{forcefield} not supported for molecule {g.mol.to_smiles()}')
-                
-                suffix = name
+        for g in self.graphs:
+            try:
+                for forcefield in forcefield_list:
+                    if forcefield.startswith('gaff') or forcefield.startswith('openff'):
+                        generator = SystemGenerator(
+                            small_molecule_forcefield=forcefield,
+                            molecules=[g.mol],
+                            forcefield_kwargs={"constraints": None, "removeCMMotion": False},
+                        )
+                        name = forcefield
+                    elif forcefield.startswith('amber') or forcefield.startswith('protein'):
+                        generator = SystemGenerator(
+                            forcefields=[forcefield],
+                            molecules=[g.mol],
+                            forcefield_kwargs={"constraints": None, "removeCMMotion": False},
+                        )
+                        if forcefield == 'amber14-all.xml':
+                            name = 'amber14sb'
+                        elif forcefield == 'amber/protein.ff14SBonlysc.xml':
+                            name = 'amber14sb_onlysc'
+                    else:
+                        import warnings
+                        warnings.warn(f'{forcefield} not supported for molecule {g.mol.to_smiles()}')
+                    
+                    suffix = name
 
-                # Parameterize topology
-                topology = g.mol.to_topology().to_openmm()
-                # Create openmm system
-                system = generator.create_system(topology)
-                # Use langevin integrator, although it's not super useful here
-                integrator = openmm.LangevinIntegrator(TEMPERATURE, COLLISION_RATE, STEP_SIZE)
-                # Create simulation
-                simulation = Simulation(topology=topology, system=system, integrator=integrator)
-                # Get energy
-                us = []
-                us_prime = []
-                xs = (
-                    Quantity(
-                        g.nodes["n1"].data["xyz"].detach().numpy(),
-                        espunits.DISTANCE_UNIT,
+                    # Parameterize topology
+                    topology = g.mol.to_topology().to_openmm()
+                    # Create openmm system
+                    system = generator.create_system(topology)
+                    # Use langevin integrator, although it's not super useful here
+                    integrator = openmm.LangevinIntegrator(TEMPERATURE, COLLISION_RATE, STEP_SIZE)
+                    # Create simulation
+                    simulation = Simulation(topology=topology, system=system, integrator=integrator)
+                    # Get energy
+                    us = []
+                    us_prime = []
+                    xs = (
+                        Quantity(
+                            g.nodes["n1"].data["xyz"].detach().numpy(),
+                            espunits.DISTANCE_UNIT,
+                        )
+                        .value_in_unit(unit.nanometer)
+                        .transpose((1, 0, 2))
                     )
-                    .value_in_unit(unit.nanometer)
-                    .transpose((1, 0, 2))
-                )
-                for x in xs:
-                    simulation.context.setPositions(x)
-                    us.append(
-                        simulation.context.getState(getEnergy=True)
-                        .getPotentialEnergy()
-                        .value_in_unit(espunits.ENERGY_UNIT)
-                    )
-                    us_prime.append(
-                        simulation.context.getState(getForces=True)
-                        .getForces(asNumpy=True)
-                        .value_in_unit(espunits.FORCE_UNIT) * -1
+                    for x in xs:
+                        simulation.context.setPositions(x)
+                        us.append(
+                            simulation.context.getState(getEnergy=True)
+                            .getPotentialEnergy()
+                            .value_in_unit(espunits.ENERGY_UNIT)
+                        )
+                        us_prime.append(
+                            simulation.context.getState(getForces=True)
+                            .getForces(asNumpy=True)
+                            .value_in_unit(espunits.FORCE_UNIT) * -1
+                        )
+
+                    us = torch.tensor(us, dtype=torch.float64)[None, :]
+                    us_prime = torch.tensor(
+                        np.stack(us_prime, axis=1),
+                        dtype=torch.get_default_dtype(),
                     )
 
-                us = torch.tensor(us, dtype=torch.float64)[None, :]
-                us_prime = torch.tensor(
-                    np.stack(us_prime, axis=1),
-                    dtype=torch.get_default_dtype(),
-                )
+                    g.nodes['g'].data['u_%s' % suffix] = us
+                    g.nodes['n1'].data['u_%s_prime' % suffix] = us_prime
 
-                g.nodes['g'].data['u_%s' % suffix] = us
-                g.nodes['n1'].data['u_%s_prime' % suffix] = us_prime
-
-            new_graphs.append(g)
+                new_graphs.append(g)
+            except Exception as e:
+                mol_err = g.mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+                _logger.warning(f'Error occured during processing {mol_err}: {e}')
+                continue
 
         # Update in place
         self.graphs = new_graphs
@@ -429,6 +502,7 @@ class CustomGraphDataset(GraphDataset):
         -------
         None
         """
+        _logger.info(f'Compute relative energy')
         new_graphs = []
         for g in self.graphs:
             g.nodes['g'].data['u_ref_relative'] = g.nodes['g'].data['u_ref'].detach().clone()
@@ -440,7 +514,7 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def reshape_conformation_size(self, n_confs=50):
+    def reshape_conformation_size(self, n_confs=50, include_min_energy_conf=False):
         """Reshape conformation size.
 
         This is a work around to handle different graph size (shape). DGL requires at least one dimension with same size. 
@@ -455,11 +529,14 @@ class CustomGraphDataset(GraphDataset):
         n_confs : int, default=50
             Number of conformations per graph (molecule).
 
+        include_min_energy_conf : boolean, default=False
+            If True, then minimum energy conformer will be included for all split graphs.
+
         Returns
         -------
         None
         """
-        _logger.info(f'Reshape graphs size')
+        _logger.info(f'Reshape graph size')
         
         import random
         import copy
@@ -469,17 +546,18 @@ class CustomGraphDataset(GraphDataset):
         self._remove_node_features()
 
         new_graphs = []
+        n_confs_cache = n_confs
         for i, g in enumerate(self.graphs):
             n = g.nodes['n1'].data['xyz'].shape[1]
 
             if n == n_confs:
-                _logger.info(f"Molecule #{i} ({n} conformations)")
+                _logger.info(f"Mol #{i} ({n} conformers)")
                 new_graphs.append(g)
 
             elif n < n_confs:
                 random.seed(self.random_seed)
                 index_random = random.choices(range(0, n), k=n_confs-n)
-                _logger.info(f"Molecule #{i} ({n} conformations). Randomly select {len(index_random)} conformations")
+                _logger.info(f"Randomly select {len(index_random)} conformers from Mol #{i} ({n} conformers)")
 
                 _g = copy.deepcopy(g)
                 _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
@@ -488,9 +566,17 @@ class CustomGraphDataset(GraphDataset):
                 new_graphs.append(_g)
 
             else:
-                _logger.info(f"Molecule #{i} ({n} conformations). Shuffle indices and split data into chunks")
                 random.seed(self.random_seed)
                 idx_range = random.sample(range(n), k=n)
+
+                # Get index for minimum energy conformer
+                if include_min_energy_conf:
+                    index_min = [g.nodes['g'].data['u_ref'].argmin().item()]
+                    n_confs = n_confs_cache - 1
+                    _logger.info(f"Shuffe Mol #{i} ({n} conformers) and split into {n_confs} conformers and add minimum energy conformer (index #{index_min[0]})")
+                else:
+                    _logger.info(f"Shuffe Mol #{i} ({n} conformers) and split into {n_confs} conformers")
+
                 for j in range(n // n_confs + 1):
                     _g = copy.deepcopy(g)
 
@@ -498,7 +584,12 @@ class CustomGraphDataset(GraphDataset):
                         index = range(j*n_confs, n)
                         random.seed(self.random_seed)
                         index_random = random.choices(range(0, n), k=(j+1)*n_confs-n)
-                        _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
+
+                        if include_min_energy_conf:
+                            index_random = index_random + index_min
+                            _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers and add minimum energy conformer")
+                        else:
+                            _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
 
                         _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'][:, index], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
                         _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'][:, index, :], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
@@ -507,7 +598,12 @@ class CustomGraphDataset(GraphDataset):
                         idx1 = j*n_confs
                         idx2 = (j+1)*n_confs
                         index = idx_range[idx1:idx2]
-                        _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
+
+                        if include_min_energy_conf:
+                            index = index + index_min
+                            _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2} and add minimum energy conformer")
+                        else:
+                            _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
 
                         _g.nodes["g"].data["u_ref"] = _g.nodes['g'].data['u_ref'][:, index]
                         _g.nodes["n1"].data["xyz"] = _g.nodes['n1'].data['xyz'][:, index, :]
@@ -546,12 +642,12 @@ class CustomGraphDataset(GraphDataset):
 
 
     @staticmethod
-    def _merge_graphs(ds):
+    def _merge_graphs(subset, isomeric_flag):
         """Merge multiple Graph instances into a single Graph.
 
         Parameters
         ----------
-        ds : list of espaloma.graphs.graph.Graph
+        subset : list of espaloma.graphs.graph.Graph, default=None
             The list of Graph instances to be merged. All Graphs in the list must be equivalent.
 
         Returns
@@ -564,30 +660,76 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
+        if isomeric_flag == True:
+            mapped_smiles = subset[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+        else:
+            mapped_smiles = subset[0].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True) 
+        _logger.info(f'Merge {len(subset)} graphs: {mapped_smiles}')
+
         # Check if graphs are equivalent
-        for i in range(1, len(ds)):
-            # Openff molecule
-            assert ds[0].mol == ds[i].mol
-            # Mapped isomeric smiles
-            assert ds[0].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True) == ds[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
-            # Other node features
-            for key in ["sum_q"]:
-                np.testing.assert_array_equal(ds[0].nodes['g'].data[key].flatten().numpy(), ds[i].nodes['g'].data[key].flatten().numpy())
-            for key in ["q_ref", "idxs", "h0"]:
-                np.testing.assert_array_equal(ds[0].nodes['n1'].data[key].flatten().numpy(), ds[i].nodes['n1'].data[key].flatten().numpy())
+        charge_index = []    # book keep indices with inconsistent partial charges
+        atol = rtol = 1e-2   # charge tolerance
+        for i in range(1, len(subset)):
+            if isomeric_flag == True:
+                mapped_smiles_i = subset[i].mol.to_smiles(isomeric=True, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Isomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"
+            else:
+                mapped_smiles_i = subset[i].mol.to_smiles(isomeric=False, explicit_hydrogens=True, mapped=True)
+                assert mapped_smiles == mapped_smiles_i, f"Nonisomeric mapped smiles are not equivalent: {mapped_smiles} != {mapped_smiles_i}"            
+            # Net charge
+            np.testing.assert_array_equal(subset[0].nodes['g'].data['sum_q'].flatten().numpy(), subset[i].nodes['g'].data['sum_q'].flatten().numpy())
+            # Input node features
+            np.testing.assert_array_equal(subset[0].nodes['n1'].data['h0'].flatten().numpy(), subset[i].nodes['n1'].data['h0'].flatten().numpy())
+            # Atom ordering: As long as mapped smiles are the same, we don't need to compare n1, n2, n3 nodes?
+            np.testing.assert_array_equal(subset[0].nodes['n1'].data['idxs'].flatten().numpy(), subset[i].nodes['n1'].data['idxs'].flatten().numpy())
+            np.testing.assert_array_equal(subset[0].nodes['n2'].data['idxs'].flatten().numpy(), subset[i].nodes['n2'].data['idxs'].flatten().numpy())
+            np.testing.assert_array_equal(subset[0].nodes['n3'].data['idxs'].flatten().numpy(), subset[i].nodes['n3'].data['idxs'].flatten().numpy())
+            # Partial charges: There could be inconsistency due to different 3D conformers generated during partial charge calculation process.
+            charge_boolean = np.allclose(subset[0].nodes['n1'].data['q_ref'].flatten().numpy(), subset[i].nodes['n1'].data['q_ref'].flatten().numpy(), rtol=rtol, atol=atol)
+            if charge_boolean == False:
+                charge_diff = np.abs(subset[0].nodes['n1'].data['q_ref'].flatten().numpy() - subset[i].nodes['n1'].data['q_ref'].flatten().numpy())
+                _logger.warning(f"Entry {i}: Maximum charge difference {charge_diff.max()} is higher than {atol} when compared to the first graph")
+                charge_index.append(i)
+        
+        # Handle partial charges if inconsistent
+        if charge_index:
+            # Get indices with unique partial charges
+            # Book keep indices with unique partial charges starting from the first graph
+            unique_charge_index = [0]
+            for i in charge_index:
+                is_equal = []
+                for j in unique_charge_index:
+                    # Extract the arrays to compare
+                    arr_i = subset[i].nodes['n1'].data['q_ref'].flatten().numpy()
+                    arr_j = subset[j].nodes['n1'].data['q_ref'].flatten().numpy()
+                    is_equal.append(np.array_equal(arr_i, arr_j))
+                # Check if all False
+                if not any(is_equal):
+                    unique_charge_index.append(i)
+            # Average partial charges
+            _logger.info(f'Average partial charges ({unique_charge_index})...')
+            q_ref = subset[0].nodes['n1'].data['q_ref']
+            _logger.info(f'Entry #0: {q_ref.flatten().numpy()}')
+            for index in unique_charge_index[1:]:
+                _q_ref = subset[index].nodes['n1'].data['q_ref']
+                _logger.info(f'Entry #{index}: {_q_ref.flatten().numpy()}')
+                q_ref += _q_ref
+            q_ref = q_ref / len(unique_charge_index)
+            # Update partial charges in-place
+            for i in range(len(subset)):
+                subset[i].nodes['n1'].data['q_ref'] = q_ref
+            _logger.info(f'Averaged partial charges: {subset[0].nodes["n1"].data["q_ref"].flatten().numpy()}')
 
         # Merge graphs
-        g = copy.deepcopy(ds[0])
+        g = copy.deepcopy(subset[0])
         for key in g.nodes['g'].data.keys():
             if key not in ["sum_q"]:
-                for i in range(1, len(ds)):
-                    g.nodes['g'].data[key] = torch.cat((g.nodes['g'].data[key], ds[i].nodes['g'].data[key]), dim=-1)
+                for i in range(1, len(subset)):
+                    g.nodes['g'].data[key] = torch.cat((g.nodes['g'].data[key], subset[i].nodes['g'].data[key]), dim=-1)
         for key in g.nodes['n1'].data.keys():
             if key not in ["q_ref", "idxs", "h0"]:
-                for i in range(1, len(ds)):
-                    if key == "xyz":
-                        n_confs = ds[i].nodes['n1'].data['xyz'].shape[1]
-                    g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], ds[i].nodes['n1'].data[key]), dim=1)
+                for i in range(1, len(subset)):
+                    g.nodes['n1'].data[key] = torch.cat((g.nodes['n1'].data[key], subset[i].nodes['n1'].data[key]), dim=1)
         
         return g
 

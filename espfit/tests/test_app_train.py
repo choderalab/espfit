@@ -44,7 +44,7 @@ def test_load_dataset(tmpdir):
 
     # Prepare input dataset ready for training
     temporary_directory = tmpdir.mkdir('misc')
-    ds.drop_and_merge_duplicates(save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
+    ds.drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
     ds.reshape_conformation_size(n_confs=50)
     ds.compute_relative_energy()
 
@@ -74,14 +74,17 @@ def test_train(test_load_dataset, test_create_espaloma_model, tmpdir):
 
     # Create temporary checkpoint directory
     checkpoint_directory = tmpdir.mkdir('checkpoints')   # PosixPath
+    model.output_directory_path=str(checkpoint_directory)
 
-    # Train model
-    model.train(output_directory_path=str(checkpoint_directory))
+    # Train model with arbitrary number of epochs and checkpoint frequency
+    model.epochs = 20
+    model.checkpoint_frequency = 5
+    model.train()
 
     # Test if the model has been trained
     n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    expected_n_checkpoints = int(model.config['espaloma']['train']['epochs']/model.config['espaloma']['train']['checkpoint_frequency'])
-    assert expected_n_checkpoints == n_checkpoints
+    expected_n_checkpoints = int(model.epochs/model.checkpoint_frequency)
+    assert expected_n_checkpoints == n_checkpoints == 4   # 20/5 = 4
 
 
 def test_train_extend(test_load_dataset, test_create_espaloma_model, tmpdir):
@@ -107,20 +110,24 @@ def test_train_extend(test_load_dataset, test_create_espaloma_model, tmpdir):
 
     # Create temporary checkpoint directory
     checkpoint_directory = tmpdir.mkdir('checkpoints')   # PosixPath
+    model.output_directory_path=str(checkpoint_directory)
 
-    # Train model
-    model.train(output_directory_path=str(checkpoint_directory))
+    # Train model with arbitrary number of epochs and checkpoint frequency
+    model.epochs = 10
+    model.checkpoint_frequency = 2
+    model.train()
 
     # Test if the model has been trained
     n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    expected_n_checkpoints = int(model.config['espaloma']['train']['epochs']/model.config['espaloma']['train']['checkpoint_frequency'])
-    assert n_checkpoints == expected_n_checkpoints
+    expected_n_checkpoints = int(model.epochs/model.checkpoint_frequency)
+    assert n_checkpoints == expected_n_checkpoints == 5   # 10/2 = 5
 
     # Extend training
-    model.config['espaloma']['train']['epochs'] = 40
-    model.train(output_directory_path=str(checkpoint_directory))
+    model.epochs = 40
+    model.train()
     n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    assert n_checkpoints == 4
+    expected_n_checkpoints = int(model.epochs/model.checkpoint_frequency)
+    assert n_checkpoints == expected_n_checkpoints == 20   # 40/2 = 20
 
 
 def test_train_extend_failure(test_load_dataset, test_create_espaloma_model, tmpdir):
@@ -146,19 +153,24 @@ def test_train_extend_failure(test_load_dataset, test_create_espaloma_model, tmp
 
     # Create temporary checkpoint directory
     checkpoint_directory = tmpdir.mkdir('checkpoints')   # PosixPath
+    model.output_directory_path=str(checkpoint_directory)
 
     # Train model
-    model.train(output_directory_path=str(checkpoint_directory))
+    model.epochs = 20
+    model.checkpoint_frequency = 10
+    model.train()
 
     # Test if the model has been trained
     n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    expected_n_checkpoints = int(model.config['espaloma']['train']['epochs']/model.config['espaloma']['train']['checkpoint_frequency'])
-    assert n_checkpoints == expected_n_checkpoints
+    expected_n_checkpoints = int(model.epochs/model.checkpoint_frequency)
+    assert n_checkpoints == expected_n_checkpoints == 2   # 20/10 = 2
 
     # Extend training
-    # This should fail to extend the training because the given new number of epoch (i.e. 10) is less than the 
+    # The training should not extend because the given new number of epoch (i.e. 10) is less than the 
     # last epoch of the checkpoint file (i.e. 20). 
-    model.config['espaloma']['train']['epochs'] = 10
-    model.train(output_directory_path=str(checkpoint_directory))
-    n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
-    assert n_checkpoints == expected_n_checkpoints
+    with pytest.raises(SystemExit) as excinfo:
+        model.epochs = 10
+        model.train()
+    assert excinfo.value.code == 0
+    #n_checkpoints = len(glob.glob(str(checkpoint_directory.join('*.pt'))))
+    #assert n_checkpoints == expected_n_checkpoints == 2   # 20/10 = 2

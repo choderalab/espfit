@@ -56,6 +56,8 @@ class GetLoss(torch.nn.Module):
     compute_improper_loss(g):
         Compute improper l2 regularization
 
+    forward(g):
+        Compute joint loss
     """
     def __init__(self, weights={'energy': 1.0, 'force': 1.0, 'charge': 1.0, 'torsion': 1.0, 'improper': 1.0}):
         """Define loss function.
@@ -166,7 +168,11 @@ class GetLoss(torch.nn.Module):
 
         Returns
         -------
-        loss : torch.Tensor       
+        loss : torch.Tensor
+            Total weighted loss
+
+        loss_dict : dict
+            Dictionary of individual weighted losses
         """
         loss_energy = self.compute_energy_loss(g) * self.weights['energy']
         loss_force = self.compute_force_loss(g) * self.weights['force']
@@ -180,5 +186,14 @@ class GetLoss(torch.nn.Module):
 
         _logger.debug(f"energy: {loss_energy:.5f}, force: {loss_force:.5f}, charge: {loss_charge:.5f}, torsion: {loss_torsion:.5f}, improper: {loss_improper:.5f}")
         loss = loss_energy + loss_force + loss_charge + loss_torsion + loss_improper
+
+        loss_dict = {
+            'loss': None,
+            'energy': loss_energy.item(),
+            'force': loss_force.item(),
+            'charge': loss_charge.item(),
+            'torsion': loss_torsion.item(),
+            'improper': loss_improper.item(),
+        }
         
-        return loss
+        return loss, loss_dict
