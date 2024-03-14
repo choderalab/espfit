@@ -525,7 +525,8 @@ class CustomGraphDataset(GraphDataset):
         graphs into heterogenous graphs with the same number of conformations. This allows shuffling and mini-batching per
         graph (molecule). 
 
-        Only g.nodes['g'].data['u_ref'], g.nodes['g'].data['u_ref_relative'], and g.nodes['n1'].data['xyz'] will be updated.
+        Only g.nodes['g'].data['u_ref'], g.nodes['g'].data['u_ref_relative'], g.nodes['n1'].data['u_ref_prime'], 
+        and g.nodes['n1'].data['xyz'] will be updated.
 
         Note that this was also intended to augment datasets with fewer molecular diversity but with more conformers from 
         RNA nucleosides and trinucleotides.
@@ -572,6 +573,7 @@ class CustomGraphDataset(GraphDataset):
 
                 _g = copy.deepcopy(g)
                 _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
+                _g.nodes["g"].data["u_ref_relative"] = torch.cat((_g.nodes['g'].data['u_ref_relative'], _g.nodes['g'].data['u_ref_relative'][:, index_random]), dim=-1)
                 _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
                 _g.nodes['n1'].data['u_ref_prime'] = torch.cat((_g.nodes['n1'].data['u_ref_prime'], _g.nodes['n1'].data['u_ref_prime'][:, index_random, :]), dim=1)
                 new_graphs.append(_g)
@@ -603,6 +605,7 @@ class CustomGraphDataset(GraphDataset):
                             _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
 
                         _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'][:, index], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
+                        _g.nodes["g"].data["u_ref_relative"] = torch.cat((_g.nodes['g'].data['u_ref_relative'][:, index], _g.nodes['g'].data['u_ref_relative'][:, index_random]), dim=-1)
                         _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'][:, index, :], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
                         _g.nodes["n1"].data["u_ref_prime"] = torch.cat((_g.nodes['n1'].data['u_ref_prime'][:, index, :], _g.nodes['n1'].data['u_ref_prime'][:, index_random, :]), dim=1)
                     else:            
@@ -617,6 +620,7 @@ class CustomGraphDataset(GraphDataset):
                             _logger.debug(f"Iteration {j}: Extract indice from {idx1} to {idx2}")
 
                         _g.nodes["g"].data["u_ref"] = _g.nodes['g'].data['u_ref'][:, index]
+                        _g.nodes["g"].data["u_ref_relative"] = _g.nodes['g'].data['u_ref_relative'][:, index]
                         _g.nodes["n1"].data["xyz"] = _g.nodes['n1'].data['xyz'][:, index, :]
                         _g.nodes["n1"].data["u_ref_prime"] = _g.nodes['n1'].data['u_ref_prime'][:, index, :]
                     
@@ -640,7 +644,7 @@ class CustomGraphDataset(GraphDataset):
         for g in self.graphs:
             _g = copy.deepcopy(g)
             for key in g.nodes['g'].data.keys():
-                if key.startswith('u_') and key != 'u_ref':
+                if key.startswith('u_') and key != 'u_ref' and key != 'u_ref_relative':
                     _g.nodes['g'].data.pop(key)
             for key in g.nodes['n1'].data.keys():
                 if key.startswith('u_') and key != 'u_ref_prime':
