@@ -345,7 +345,7 @@ class EspalomaModel(EspalomaBase):
         
         log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
         df_new = pd.DataFrame.from_dict(loss_dict, orient='index').T
-        df_new.mul(100)   # Multiple each loss component by 100
+        df_new = df_new.mul(100)   # Multiple each loss component by 100
         df_new.insert(0, 'epoch', epoch)
 
         if os.path.exists(log_file_path):
