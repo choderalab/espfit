@@ -45,9 +45,9 @@ def test_load_dataset(tmpdir):
     # Prepare input dataset ready for training
     temporary_directory = tmpdir.mkdir('misc')
     ds.drop_duplicates(isomeric=False, keep=True, save_merged_dataset=True, dataset_name='misc', output_directory_path=str(temporary_directory))
-    ds.reshape_conformation_size(n_confs=50)
     ds.compute_relative_energy()
-
+    ds.reshape_conformation_size(n_confs=50)
+    
     return ds
 
 

@@ -329,6 +329,9 @@ class EspalomaModel(EspalomaBase):
     def report_loss(self, epoch, loss_dict):
         """Report loss.
 
+        This method reports the loss at a given epoch to a log file.
+        Each loss component is multiplied by 100 for better readability.
+
         Parameters
         ----------
         loss_dict : dict
@@ -342,6 +345,7 @@ class EspalomaModel(EspalomaBase):
         
         log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
         df_new = pd.DataFrame.from_dict(loss_dict, orient='index').T
+        df_new.mul(100)   # Multiple each loss component by 100
         df_new.insert(0, 'epoch', epoch)
 
         if os.path.exists(log_file_path):
