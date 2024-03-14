@@ -245,6 +245,7 @@ def test_reshape_conformation_size(mydata_gen2_torsion_sm):
     """
     # Test 1) reshape all dgl graphs to have 30 conformations
     ds = mydata_gen2_torsion_sm
+    ds.compute_relative_energy()
     ds.reshape_conformation_size(n_confs=30)
     nconfs = [g.nodes['g'].data['u_ref'].shape[1] for g in ds]
     assert nconfs == [30, 30, 30, 30, 30, 30, 30, 30], 'All molecules should have 30 conformers'
@@ -252,6 +253,7 @@ def test_reshape_conformation_size(mydata_gen2_torsion_sm):
     # Test 2) reshape all dgl graphs to have 30 conformations
     mydata = files('espfit').joinpath(paths[0])   # PosixPath
     ds = CustomGraphDataset.load(str(mydata))
+    ds.compute_relative_energy()
     ds.reshape_conformation_size(n_confs=20)
     nconfs = [g.nodes['g'].data['u_ref'].shape[1] for g in ds]
     assert nconfs == [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20], 'All molecules should have 20 conformers'
