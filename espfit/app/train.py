@@ -186,7 +186,7 @@ class EspalomaBase(object):
             return net
         
 
-    def save_model(self, net=None, best_model=None, model_name='espaloma.pt', output_directory_path=None):
+    def save_model(self, net=None, checkpoint_file=None, output_model='espaloma.pt', output_directory_path=None):
         """Save the Espaloma network model to a file.
         
         This method saves the Espaloma network model to a file in the specified output directory.
@@ -194,13 +194,14 @@ class EspalomaBase(object):
         Parameters
         ----------
         net : torch.nn.Sequential
-            The Espaloma network model to be saved.
+            The Espaloma network model to be saved. 
+            `net` attribute of the class will be used if available.
 
-        best_model : str
-            The path to the best model file.
+        checkpoint_file : str
+            The checkpoint exported during training that will be used to save the model.
 
-        model_name : str, default='espaloma.pt'
-            The name of the file to save the model to.
+        output_model : str, default='espaloma.pt'
+            The output file name for the model.
 
         output_directory_path : str, default=None
             The directory where the model should be saved. 
@@ -215,6 +216,9 @@ class EspalomaBase(object):
         else:
             output_directory_path = os.getcwd()
 
+        if self.net is not None:
+            net = self.net
+
         if net:
             modules = []
             for module in net:
@@ -227,9 +231,9 @@ class EspalomaBase(object):
             raise ValueError('No model provided.')
         
         # Save model
-        state_dict = torch.load(best_model, map_location=torch.device('cpu'))
+        state_dict = torch.load(checkpoint_file, map_location=torch.device('cpu'))
         net.load_state_dict(state_dict)
-        torch.save(net, os.path.join(output_directory_path, model_name))
+        torch.save(net, os.path.join(output_directory_path, output_model))
 
 
 class EspalomaModel(EspalomaBase):

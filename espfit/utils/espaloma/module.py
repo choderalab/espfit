@@ -181,8 +181,14 @@ class GetLoss(torch.nn.Module):
             loss_charge = self.compute_charge_loss(g) * self.weights['charge']
         if self.weights['torsion'] > 0 and g.number_of_nodes('n4') > 0:
             loss_torsion = self.compute_torsion_loss(g) * self.weights['torsion']
+        else:
+            # if no torsion, set to zero
+            loss_torsion = torch.tensor(0.0)
         if self.weights['improper'] > 0 and g.number_of_nodes('n4_improper') > 0:
             loss_improper = self.compute_improper_loss(g) * self.weights['improper']
+        else:
+            # if no improper, set to zero
+            loss_improper = torch.tensor(0.0)
 
         _logger.debug(f"energy: {loss_energy:.5f}, force: {loss_force:.5f}, charge: {loss_charge:.5f}, torsion: {loss_torsion:.5f}, improper: {loss_improper:.5f}")
         loss = loss_energy + loss_force + loss_charge + loss_torsion + loss_improper
