@@ -107,7 +107,7 @@ couplings = rna.compute_jcouplings(couplings=['H1H2', 'H2H3', 'H3H4'], residues=
 
 ### Prerequisite
 - [Modified version](https://github.com/kntkb/openff-toolkit/tree/v0.14.5) of openff-toolkit `0.11.5` is required to train espaloma using dgl datasets ([Zenodo](https://zenodo.org/records/8150601)), which were used to train `espaloma-0.3`.
-- OpenEye toolkit is required to load PBD files into OpenFF Molecule objects. Academic license can be obtained [here](https://www.eyesopen.com/academic-licensing).
+- OpenEye toolkit is required to load PDB files into OpenFF Molecule objects. Academic license can be obtained [here](https://www.eyesopen.com/academic-licensing).
 
 
 ### Copyright
