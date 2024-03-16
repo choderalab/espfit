@@ -33,7 +33,7 @@ class CustomGraphDataset(GraphDataset):
     compute_baseline_energy_force(forcefield_list=['openff-2.1.0']):
         Compute energies and forces using other force fields.
 
-    reshape_conformation_size(n_confs=50, include_min_energy_conf=False):
+    reshape_conformation_size(n_confs=50, include_min_energy_conf=False, keyname='u_ref'):
         Reshape conformation size.
     
     compute_relative_energy():
@@ -514,7 +514,7 @@ class CustomGraphDataset(GraphDataset):
         del new_graphs
 
 
-    def reshape_conformation_size(self, n_confs=50, include_min_energy_conf=False):
+    def reshape_conformation_size(self, n_confs=50, include_min_energy_conf=False, keyname='u_ref'):
         """Reshape conformation size.
 
         This is a work around to handle different graph size (shape). DGL requires at least one dimension with same size. 
@@ -539,6 +539,11 @@ class CustomGraphDataset(GraphDataset):
         include_min_energy_conf : boolean, default=False
             If True, then minimum energy conformer will be included for all split graphs.
 
+        keyname : str, default='u_ref'
+            Key name to be used to define the energy minima. This is usually `u_ref` or `u_qm`.
+            Note that depending on how the dataset was prepared, nonbonded energies could be subtracted from `u_ref`,
+            whereas `u_qm` could be the raw QM energies.
+
         Returns
         -------
         None
@@ -553,8 +558,9 @@ class CustomGraphDataset(GraphDataset):
         import copy
         import torch
 
-        # Remove node features that are not used during training
-        self._remove_node_features()
+        # Check if keyname is specified
+        if include_min_energy_conf == True and keyname not in ['u_ref', 'u_qm']:
+            raise Exception(f'Key name {keyname} not supported. Supported keynames are u_ref and u_qm')
 
         new_graphs = []
         n_confs_cache = n_confs
@@ -584,7 +590,14 @@ class CustomGraphDataset(GraphDataset):
 
                 # Get index for minimum energy conformer
                 if include_min_energy_conf:
-                    index_min = [g.nodes['g'].data['u_ref'].argmin().item()]
+                    index_min = [g.nodes['g'].data[keyname].argmin().item()]
+
+                    # DEBUG PURPOSE
+                    #_index_min_uref = [g.nodes['g'].data['u_ref'].argmin().item()]
+                    #_index_min_uqm  = [g.nodes['g'].data['u_qm'].argmin().item()]
+                    #_logger.info(f'(u_ref:{_index_min_uref[0]} and u_qm:{_index_min_uqm[0]})')
+                    #_logger.info(f'Index for minima energy conformer {keyname}: {index_min[0]}')
+
                     n_confs = n_confs - 1
                     _logger.info(f"Mol #{i} ({n} conformers): Shuffle and split into {n_confs} conformers and add minimum energy conformer (index #{index_min[0]})")
                 else:
@@ -603,7 +616,7 @@ class CustomGraphDataset(GraphDataset):
                             _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers and add minimum energy conformer")
                         else:
                             _logger.debug(f"Iteration {j}: Randomly select {len(index_random)} conformers")
-
+                        
                         _g.nodes["g"].data["u_ref"] = torch.cat((_g.nodes['g'].data['u_ref'][:, index], _g.nodes['g'].data['u_ref'][:, index_random]), dim=-1)
                         _g.nodes["g"].data["u_ref_relative"] = torch.cat((_g.nodes['g'].data['u_ref_relative'][:, index], _g.nodes['g'].data['u_ref_relative'][:, index_random]), dim=-1)
                         _g.nodes["n1"].data["xyz"] = torch.cat((_g.nodes['n1'].data['xyz'][:, index, :], _g.nodes['n1'].data['xyz'][:, index_random, :]), dim=1)
@@ -628,6 +641,9 @@ class CustomGraphDataset(GraphDataset):
 
         # Update in place
         self.graphs = new_graphs
+        # Remove node features that are not used during training
+        self._remove_node_features()
+
         del new_graphs
 
 

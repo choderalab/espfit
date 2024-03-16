@@ -349,7 +349,7 @@ class EspalomaModel(EspalomaBase):
         
         log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
         df_new = pd.DataFrame.from_dict(loss_dict, orient='index').T
-        df_new = df_new.mul(100)   # Multiple each loss component by 100
+        df_new = df_new.mul(100)   # Multiple each loss component by 100. Is this large enough?
         df_new.insert(0, 'epoch', epoch)
 
         if os.path.exists(log_file_path):
@@ -455,7 +455,14 @@ class EspalomaModel(EspalomaBase):
         with torch.autograd.set_detect_anomaly(True):
             for i in range(self.restart_epoch, self.epochs):
                 epoch = i + 1    # Start from 1 (not zero-indexing)
-                
+            
+                """
+                # torch.cuda.OutOfMemoryError: CUDA out of memory. 
+                # Tried to allocate 80.00 MiB (GPU 0; 10.75 GiB total capacity; 
+                # 9.76 GiB already allocated; 7.62 MiB free; 10.40 GiB reserved in total by PyTorch) 
+                # If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  
+                # See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
+
                 loss = torch.tensor(0.0)
                 if torch.cuda.is_available():
                     loss = loss.cuda("cuda:0")
@@ -496,7 +503,48 @@ class EspalomaModel(EspalomaBase):
                 # Back propagate
                 loss.backward()
                 optimizer.step()
-                
+                """
+
+                # Gradient accumulation
+                accumulation_steps = len(ds_tr_loader)
+                for g in ds_tr_loader:
+                    optimizer.zero_grad()
+                    if torch.cuda.is_available():
+                        g = g.to("cuda:0")
+                    g.nodes["n1"].data["xyz"].requires_grad = True
+
+                    loss, loss_dict = self.net(g)
+                    loss = loss/accumulation_steps
+                    loss.backward()
+
+                if epoch > self.sampler_patience:
+                    # Save checkpoint as local model (net.pt)
+                    # `neff_min` is -1 if SamplerReweight.samplers is None
+                    samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                    neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
+
+                    # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
+                    if neff_min < self.neff_threshold:
+                        _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold})')
+                        SamplerReweight.samplers = samplers
+                        SamplerReweight.run()
+                    del samplers
+
+                    # Compute sampler loss
+                    loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
+                    for sampler_index, sampler_loss in enumerate(loss_list):
+                        sampler = SamplerReweight.samplers[sampler_index]
+                        loss += sampler_loss * sampler_weight
+                        loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
+                    loss.backward()
+                    loss_dict['neff'] = neff_min
+
+                loss_dict['loss'] = loss.item()
+                self.report_loss(epoch, loss_dict)
+
+                # Update
+                optimizer.step()
+
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     #_loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
@@ -577,7 +625,7 @@ class EspalomaModel(EspalomaBase):
         _logger.info(f'Save ckpt{epoch}.pt as temporary espaloma model (net.pt)')
         self._save_checkpoint(epoch)
         local_model = os.path.join(self.output_directory_path, f"ckpt{epoch}.pt")
-        self.save_model(net=net_copy, best_model=local_model, model_name=f"net.pt", output_directory_path=self.output_directory_path)
+        self.save_model(net=net_copy, checkpoint_file=local_model, output_model=f"net.pt", output_directory_path=self.output_directory_path)
 
 
     def _setup_local_samplers(self, epoch, net_copy, debug):
