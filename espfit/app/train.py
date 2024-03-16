@@ -349,7 +349,7 @@ class EspalomaModel(EspalomaBase):
         
         log_file_path = os.path.join(self.output_directory_path, 'reporter.log')
         df_new = pd.DataFrame.from_dict(loss_dict, orient='index').T
-        df_new = df_new.mul(100)   # Multiple each loss component by 100
+        df_new = df_new.mul(100)   # Multiple each loss component by 100. Is this large enough?
         df_new.insert(0, 'epoch', epoch)
 
         if os.path.exists(log_file_path):
@@ -536,7 +536,6 @@ class EspalomaModel(EspalomaBase):
                         sampler = SamplerReweight.samplers[sampler_index]
                         loss += sampler_loss * sampler_weight
                         loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
-                    
                     loss.backward()
                     loss_dict['neff'] = neff_min
 
@@ -626,7 +625,7 @@ class EspalomaModel(EspalomaBase):
         _logger.info(f'Save ckpt{epoch}.pt as temporary espaloma model (net.pt)')
         self._save_checkpoint(epoch)
         local_model = os.path.join(self.output_directory_path, f"ckpt{epoch}.pt")
-        self.save_model(net=net_copy, best_model=local_model, model_name=f"net.pt", output_directory_path=self.output_directory_path)
+        self.save_model(net=net_copy, checkpoint_file=local_model, output_model=f"net.pt", output_directory_path=self.output_directory_path)
 
 
     def _setup_local_samplers(self, epoch, net_copy, debug):
