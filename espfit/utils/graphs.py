@@ -590,12 +590,13 @@ class CustomGraphDataset(GraphDataset):
 
                 # Get index for minimum energy conformer
                 if include_min_energy_conf:
-                    # Get index for minimum energy conformer
                     index_min = [g.nodes['g'].data[keyname].argmin().item()]
-                    _index_min_uref = [g.nodes['g'].data['u_ref'].argmin().item()]
-                    _index_min_uqm  = [g.nodes['g'].data['u_qm'].argmin().item()]
-                    _logger.info(f'(u_ref:{_index_min_uref[0]} and u_qm:{_index_min_uqm[0]})')
-                    _logger.info(f'Index for minima energy conformer {keyname}: {index_min[0]}')
+
+                    # DEBUG PURPOSE
+                    #_index_min_uref = [g.nodes['g'].data['u_ref'].argmin().item()]
+                    #_index_min_uqm  = [g.nodes['g'].data['u_qm'].argmin().item()]
+                    #_logger.info(f'(u_ref:{_index_min_uref[0]} and u_qm:{_index_min_uqm[0]})')
+                    #_logger.info(f'Index for minima energy conformer {keyname}: {index_min[0]}')
 
                     n_confs = n_confs - 1
                     _logger.info(f"Mol #{i} ({n} conformers): Shuffle and split into {n_confs} conformers and add minimum energy conformer (index #{index_min[0]})")
