@@ -12,19 +12,17 @@ Infrastruture to train espaloma with experimental observables
 ### Installation
 >mamba create -n espfit python=3.11  
 >mamba install -c conda-forge espaloma=0.3.2  
->#uninstall openff-toolkit and install a customized version to support dgl graphs created using openff-toolkit=0.10.6  
 >conda uninstall --force openff-toolkit  
 >pip install git+https://github.com/kntkb/openff-toolkit.git@7e9d0225782ef723083407a1cbf1f4f70631f934  
->#install openeye-toolkit  
 >mamba install openeye-toolkits -c openeye  
->#uninstall openmmforcefields if < 0.12.0  
 >conda uninstall --force openmmforcefields  
->#use pip instead of mamba to avoid dependency issues with ambertools and python  
 >pip install git+https://github.com/openmm/openmmforcefields@0.12.0  
->#install openmmtools  
 >mamba install openmmtools  
->#install barnaba  
 >mamba install barnaba  
+
+####  Notes
+- `openff-toolkit` is re-installed with a customized version to support dgl graphs created using `openff-toolkit=0.10.6`
+- `openmmforcefields` is reinstalled if the version is `<0.12.0` using pip to avoid dependency issues with `ambertools` and `python`. espaloma functionalities are better supported after `>=0.12.0`.
 
 
 ### Quick Usage
