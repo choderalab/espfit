@@ -387,7 +387,7 @@ class SetupSampler(BaseSimulation):
             small_molecule_forcefield = str(files('espfit').joinpath("data/forcefield/espaloma-0.3.2.pt"))
         self.small_molecule_forcefield = small_molecule_forcefield
         self.water_model = water_model
-        self.forcefield_files = self._update_forcefield_files(forcefield_files)
+        self.forcefield_files = forcefield_files
         self.solvent_padding = solvent_padding
         self.ionic_strength = ionic_strength
         self.hmass = hmass
@@ -399,6 +399,10 @@ class SetupSampler(BaseSimulation):
         self.override_with_espaloma = override_with_espaloma
         self.target_class = None
         self.target_name = None
+        # Update forcefield file list to add water model files
+        self._update_forcefield_files()
+        # Get water class (3-site: tip3p, 4-site model: tip4pew)
+        self._get_water_class()
 
 
     @classmethod
@@ -438,7 +442,7 @@ class SetupSampler(BaseSimulation):
             print(e)
             raise
         
-        config = config['sampler']['setup']  # this could be list to support multiple systems
+        config = config['sampler']['setup']  # list of multiple setups
         if config is None:
             raise ValueError("target is not specified in the configuration file")
         
@@ -449,6 +453,8 @@ class SetupSampler(BaseSimulation):
         samplers = []
         _logger.debug(f'Found {len(config)} systems in the configuration file')
         for _config in config:
+            # Create SetupSampler instance with default settings
+            # Note that this automatically adds the default water model (tip3p) to `self.forcefield_files`.
             sampler = cls()
 
             # Target information
@@ -489,7 +495,7 @@ class SetupSampler(BaseSimulation):
                         setattr(sampler, key, value)
                     else:
                         raise ValueError(f"Invalid keyword argument: {key}")
-            
+
             # Pass temporary espaloma model to the sampler if kwargs are given
             for key, value in override_sampler_kwargs.items():
                 if hasattr(sampler, key):
@@ -503,7 +509,18 @@ class SetupSampler(BaseSimulation):
                     sampler.output_directory_path = os.path.join(sampler.output_directory_path, sampler.target_name, f'{args[0]}')
                 else:
                     raise ValueError(f"Invalid argument: {args}. Expected a single integer value for the epoch number.")
-            
+
+            # Empty and recreate `forcefield_files` to avoid appending multiple water model forcefields.
+            # Use list of forcefield files if given in the `override_sampler_kwargs`. If not given, use the default forcefield_files.
+            if 'forcefield_files' in override_sampler_kwargs.keys():
+                pass
+            else:
+                forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml']
+            sampler.forcefield_files = forcefield_files
+            sampler._update_forcefield_files()
+            # Update water class (3-site: tip3p, 4-site model: tip4pew)
+            sampler._get_water_class()
+
             # Create system
             sampler.create_system(biopolymer_file=biopolymer_file, ligand_file=ligand_file)            
             samplers.append(sampler)
@@ -512,7 +529,7 @@ class SetupSampler(BaseSimulation):
         return samplers
 
 
-    def _update_forcefield_files(self, forcefield_files):
+    def _update_forcefield_files(self):
         """Get forcefield files.
 
         Update `forcefield_files` depending on the type of water model.
@@ -526,28 +543,23 @@ class SetupSampler(BaseSimulation):
         # For some reason, the original forcefield_files keeps appending when SetupSampler is called.
         # TODO: Is this the right way to handle this issue?
         import copy
-        _forcefield_files = copy.deepcopy(forcefield_files)
+        _forcefield_files = copy.deepcopy(self.forcefield_files)
 
         # 3-site water models
         if self.water_model == 'tip3p':
             _forcefield_files.append(['amber/tip3p_standard.xml', 'amber/tip3p_HFE_multivalent.xml'])
         elif self.water_model == 'tip3pfb':
-            self.water_model = 'tip3p'
             _forcefield_files.append(['amber/tip3pfb_standard.xml', 'amber/tip3pfb_HFE_multivalent.xml'])
         elif self.water_model == 'spce':
-            self.water_model = 'tip3p'
             _forcefield_files.append(['amber/spce_standard.xml', 'amber/spce_HFE_multivalent.xml'])
         elif self.water_model == 'opc3':
             raise NotImplementedError('see https://github.com/choderalab/rna-espaloma/blob/main/experiment/nucleoside/script/create_system_espaloma.py#L366')
         # 4-site water models
         elif self.water_model == 'tip4pew':
-            self.water_model = 'tip4pew'
             _forcefield_files.append(['amber/tip4pew_standard.xml', 'amber/tip4pew_HFE_multivalent.xml'])
         elif self.water_model == 'tip4pfb':
-            self.water_model = 'tip4pew'
             _forcefield_files.append(['amber/tip4pfb_standard.xml', 'amber/tip4pfb_HFE_multivalent.xml'])
         elif self.water_model == 'opc':
-            self.water_model = 'tip4pew'
             _forcefield_files.append(['amber/opc_standard.xml'])
         else:
             raise NotImplementedError(f'Water model {self.water_model} is not supported.')
@@ -559,7 +571,24 @@ class SetupSampler(BaseSimulation):
             else:
                 new_forcefield_files.append(f)
 
-        return new_forcefield_files
+        #return new_forcefield_files
+        self.forcefield_files = new_forcefield_files
+
+
+    def _get_water_class(self):
+        """Get water class (3-site or 4-site) based on the water model.
+
+        Set self.water_class to tip3p or tip4pew based on the water model.
+
+        3-site water models: tip3p, tip3pfb, spce
+        4-site water models: tip4pew, tip4pfb, opc
+        """
+        if self.water_model in ['tip3p', 'tip3pfb', 'spce']:
+            self.water_class = 'tip3p'
+        elif self.water_model in ['tip4pew', 'tip4pfb', 'opc']:
+            self.water_class = 'tip4pew'
+        else:
+            raise NotImplementedError(f'Water model {self.water_model} is not supported.')
 
 
     def _load_biopolymer_file(self):
@@ -642,10 +671,10 @@ class SetupSampler(BaseSimulation):
         from openmm import MonteCarloBarostat
         from openmm import LangevinMiddleIntegrator
 
+        # Load biopolymer and ligand files
         self._biopolymer_file = biopolymer_file
         self._ligand_file = ligand_file
 
-        # Load biopolymer and ligand files
         if self._biopolymer_file is None and self._ligand_file is None:
             raise ValueError("At least one biopolymer (.pdb) or ligand (.sdf) file must be provided")
         if self._biopolymer_file is not None:
@@ -687,7 +716,7 @@ class SetupSampler(BaseSimulation):
         # Solvate system
         _logger.debug("Solvating system...")
         modeller = app.Modeller(self._complex_topology, self._complex_positions)
-        modeller.addSolvent(self._system_generator.forcefield, model=self.water_model, padding=self.solvent_padding, ionicStrength=self.ionic_strength)
+        modeller.addSolvent(self._system_generator.forcefield, model=self.water_class, padding=self.solvent_padding, ionicStrength=self.ionic_strength)
 
         # Create system
         self.modeller_solvated_topology = modeller.getTopology()
@@ -715,7 +744,9 @@ class SetupSampler(BaseSimulation):
 
             # Re-create system generator
             del self._system_generator
-            self.forcefield_files = self._update_forcefield_files(forcefield_files=[])  # Get water and ion forcefield files
+            #self.forcefield_files = self._update_forcefield_files(forcefield_files=[])  # Get water and ion forcefield files
+            self.forcefield_files = []    # Initialize forcefield_files to empty list and get water and ion forcefield files
+            self._update_forcefield_files()
             self._system_generator = SystemGenerator(
                 forcefields=self.forcefield_files, forcefield_kwargs=forcefield_kwargs, periodic_forcefield_kwargs = periodic_forcefield_kwargs, barostat=barostat, 
                 small_molecule_forcefield=self.small_molecule_forcefield, cache=None, template_generator_kwargs=template_generator_kwargs)
