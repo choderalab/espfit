@@ -38,8 +38,8 @@ class BaseSimulation(object):
     export_xml(exportSystem=True, exportState=True, exportIntegrator=True, output_directory_path=None):
         Export serialized system XML file and solvated pdb file.
     """
-    def __init__(self, maxIterations=100, nsteps=250000, atomSubset='solute', 
-                 checkpoint_frequency=25000, logging_frequency=250000, netcdf_frequency=250000, 
+    def __init__(self, maxIterations=100, nsteps=2500000, atomSubset='solute', 
+                 checkpoint_frequency=250000, logging_frequency=250000, netcdf_frequency=250000, 
                  output_directory_path=None, input_directory_path=None):
         """Initialize base simulation object.
         
@@ -48,19 +48,19 @@ class BaseSimulation(object):
         maxIterations : int, default=100
             Maximum number of iterations to perform minimization.
 
-        nsteps : int, default=250000 (10 ns using 4 fs timestep)
+        nsteps : int, default=2500000 (10 ns using 4 fs timestep)
             Number of steps to run the simulation.
 
         atomSubset : str, default='solute'
             Subset of atoms to save. Default is 'solute'. Other options 'all' and 'not water'.
             
-        checkpoint_frequency : int, default=25000 (1 ns)
+        checkpoint_frequency : int, default=250000 (1 ns)
             Frequency (in steps) at which to write checkpoint files.
 
-        logging_frequency : int, default=250000 (10 ns)
+        logging_frequency : int, default=250000 (1 ns)
             Frequency (in steps) at which to write logging files.
 
-        netcdf_frequency : int, default=250000 (10 ns)
+        netcdf_frequency : int, default=250000 (1 ns)
             Frequency (in steps) at which to write netcdf files.
 
         output_directory_path : str, optional
@@ -336,7 +336,7 @@ class SetupSampler(BaseSimulation):
     ['amber/protein.ff14SB.xml', 'amber/RNA.OL3.xml']       : pl-multi (TPO): NG, pl-single: OK, RNA: OK
     """
     def __init__(self, 
-                 small_molecule_forcefield='espfit/data/forcefield/espaloma-0.3.2.pt',
+                 small_molecule_forcefield='espaloma-0.3.2',
                  forcefield_files = ['amber/ff14SB.xml', 'amber/phosaa14SB.xml'],
                  water_model='tip3p', 
                  solvent_padding=9.0 * unit.angstroms, 
@@ -355,7 +355,8 @@ class SetupSampler(BaseSimulation):
         Parameters
         ----------
         small_molecule_forcefield : str, optional
-            The force field to be used for small molecules. Default is 'openff-2.1.0'.
+            The force field to be used for small molecules. Default is 'espaloma-0.3.2'.
+            Alternative recommended choice is 'openff-2.1.0'.
         forcefield_files : list, optional
             List of force field files. Default is ['amber14-all.xml'].
         water_model : str, optional
@@ -378,8 +379,12 @@ class SetupSampler(BaseSimulation):
             The integration timestep. Default is 4 * unit.femtoseconds.
         override_with_espaloma : bool, optional
             Whether to override the original parameters with espaloma. Default is True.
+            This will override all solute molecules with espaloma parameters.
         """
         super(SetupSampler, self).__init__(**kwargs)
+        if small_molecule_forcefield == 'espaloma-0.3.2':
+            from importlib.resources import files
+            small_molecule_forcefield = str(files('espfit').joinpath("data/forcefield/espaloma-0.3.2.pt"))
         self.small_molecule_forcefield = small_molecule_forcefield
         self.water_model = water_model
         self.forcefield_files = self._update_forcefield_files(forcefield_files)
@@ -397,9 +402,13 @@ class SetupSampler(BaseSimulation):
 
 
     @classmethod
-    def from_toml(cls, filename, *args, **override_sampler_kwargs):
+    def _from_toml(cls, filename, *args, **override_sampler_kwargs):
         """Create SetupSampler from a TOML configuration file.
         
+        Note that this is designed for creating new systems with temporary espaloma models generated during 
+        espaloma training. It supports multiple systems in the configuration file and returns a list of 
+        SetupSampler instances.
+
         Parameters
         ----------
         filename : str
@@ -429,30 +438,48 @@ class SetupSampler(BaseSimulation):
             print(e)
             raise
         
-        config = config['sampler']['setup']  # list
+        config = config['sampler']['setup']  # this could be list to support multiple systems
         if config is None:
             raise ValueError("target is not specified in the configuration file")
         
+        # If the configuration file contains a single system, convert it to a list
+        if not isinstance(config, list):
+            config = [config]
+
         samplers = []
         _logger.debug(f'Found {len(config)} systems in the configuration file')
         for _config in config:
             sampler = cls()
 
             # Target information
-            target_class = _config['target_class']
-            target_name = _config['target_name']
-
+            target_class = _config.get('target_class', None)
+            target_name = _config.get('target_name', None)
             sampler.target_class = target_class
             sampler.target_name = target_name
 
-            biopolymer_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/target.pdb')
-            ligand_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/ligand.sdf')
-            if not ligand_file.exists():
-                ligand_file = None
+            # Get biopolymer and ligand file if given
+            # Priority 1: Use input files if given
+            biopolymer_file, ligand_file = None, None
+            if _config.get('biopolymer_file'):
+                biopolymer_file = _config['biopolymer_file']
+                if not os.path.exists(biopolymer_file):
+                    raise FileNotFoundError(f"File not found: {biopolymer_file}")
+            if _config.get('ligand_file'):
+                ligand_file = _config['ligand_file']
+                if not os.path.exists(ligand_file):
+                    raise FileNotFoundError(f"File not found: {ligand_file}")
+            # Priority 2: Search espfit/data/target directory if input files are not given
+            if biopolymer_file is None and ligand_file is None:
+                biopolymer_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/target.pdb')
+                ligand_file = files('espfit').joinpath(f'data/target/{target_class}/{target_name}/ligand.sdf')
+                if not biopolymer_file.exists():
+                    raise FileNotFoundError(f"File not found: {biopolymer_file}")
+                if not ligand_file.exists():
+                    ligand_file = None
 
             # System settings
             for key, value in _config.items():
-                if key not in ['target_class', 'target_name']:
+                if key not in ['target_class', 'target_name', 'biopolymer_file', 'ligand_file']:
                     if hasattr(sampler, key):
                         if isinstance(value, str) and "*" in value:
                             _value = float(value.split('*')[0].strip())
@@ -684,7 +711,7 @@ class SetupSampler(BaseSimulation):
             # As a workaround, we will delete the original `self._system_generator` and create a new one to regenerate the system with espaloma.
             # Only water and ion forcefield files will be used to regenerate the system. Solute molecules will be parametrized with espaloma.
             # 
-            _logger.debug("Regenerate system with espaloma.")
+            _logger.info("Regenerate system with espaloma")
 
             # Re-create system generator
             del self._system_generator
@@ -728,8 +755,6 @@ class SetupSampler(BaseSimulation):
         """
         import mdtraj
         from openff.toolkit import Molecule
-
-        _logger.debug("Regenerate system with espaloma")
 
         # Check biopolymer chains
         mdtop = mdtraj.Topology.from_openmm(self.modeller_solvated_topology)
