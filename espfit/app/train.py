@@ -515,7 +515,7 @@ class EspalomaModel(EspalomaBase):
 
                     loss, loss_dict = self.net(g)
                     loss = loss/accumulation_steps
-                    loss.backward()
+                    loss.backward(retain_graph=True)
 
                 if epoch > self.sampler_patience:
                     # Save checkpoint as local model (net.pt)
@@ -666,7 +666,7 @@ class EspalomaModel(EspalomaBase):
             }
         
         # Create sampler system from configuration file. Returns list of systems.                        
-        samplers = SetupSampler.from_toml(self.configfile, *args, **override_sampler_kwargs)
+        samplers = SetupSampler._from_toml(self.configfile, *args, **override_sampler_kwargs)
 
         return samplers
     
