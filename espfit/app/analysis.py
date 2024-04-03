@@ -58,7 +58,7 @@ class BaseDataLoader(object):
         os.makedirs(value, exist_ok=True)
 
 
-    def load_traj(self, reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', stride=1, input_directory_path=None):
+    def load_traj(self, reference_pdb='solvated.pdb', trajectory_netcdf='traj.nc', stride=1, exclude_n_frames=0, input_directory_path=None):
         """Load MD trajectory.
         
         Parameters
@@ -71,6 +71,11 @@ class BaseDataLoader(object):
 
         stride : int, optional
             Stride to load the trajectory. Default is 1.
+        
+        exclude_n_frames : float or int, optional
+            Exclude the first n frames from the trajectory. Default is 0.
+            If float, the first n percentange of frames will be excluded.
+            If int, the first n frames will be excluded.
 
         input_directory_path : str, optional
             Input directory path. Default is None.
@@ -113,6 +118,17 @@ class BaseDataLoader(object):
             self.traj = traj.atom_slice(self.atom_indices)
         else:
             self.traj = traj
+
+        # Exclude the first n frames from the trajectory
+        if isinstance(exclude_n_frames, int):
+            if 0 < exclude_n_frames <= traj.n_frames:
+                self.traj = self.traj[exclude_n_frames:]
+        elif isinstance(exclude_n_frames, float):
+            if 0 < exclude_n_frames < 1:
+                exclude_n_frames = int(exclude_n_frames * traj.n_frames)
+                self.traj = self.traj[exclude_n_frames:]
+        else:
+            raise ValueError(f"Invalid exclude_n_frames: {exclude_n_frames}. Expected int or float.")
 
         
 class RNASystem(BaseDataLoader):
@@ -235,9 +251,9 @@ class RNASystem(BaseDataLoader):
                 std_raw = replace_nan_with_none(std_raw)
                 if weights is not None:
                     arr = _values[:,j] * weights
-                    #_logger.info(f'non-weighted: {_values[:,j]}')
-                    #_logger.info(f'weights:      {weights}')
-                    #_logger.info(f'weighted:     {arr}')
+                    _logger.info(f'non-weighted: {_values[:,j]}')
+                    _logger.info(f'weights:      {weights}')
+                    _logger.info(f'weighted:     {arr}')
                     avg = np.round(arr.mean(), 5)
                     std = np.round(arr.std(), 5)
                     avg = replace_nan_with_none(avg)

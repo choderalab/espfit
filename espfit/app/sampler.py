@@ -757,6 +757,13 @@ class SetupSampler(BaseSimulation):
             self.new_solvated_system = self.modeller_solvated_system
             self.new_solvated_topology = self.modeller_solvated_topology
 
+        # Set force groups
+        # https://github.com/openmm/openmm-cookbook/blob/main/notebooks/cookbook/Analyzing%20Energy%20Contributions.ipynb
+        # OpenMM does not have a way to directly query the energy of a Force object. 
+        # Instead, it lets you query the energy of a force group. We therefore need each Force object to be in a different group.
+        for i, f in enumerate(self.new_solvated_system.getForces()):
+            f.setForceGroup(i)
+
         # Save solvated pdb file
         outfile = os.path.join(self.output_directory_path, f"solvated.pdb")
         with open(f"{outfile}", "w") as wf:

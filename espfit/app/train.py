@@ -532,6 +532,17 @@ class EspalomaModel(EspalomaBase):
         Returns
         -------
         None
+
+        Notes
+        -----
+        Back-propagation is performed against accumulated gradients to avoid CUDA out of memory error.
+        Following error is raised if back-propagation is performed without gradient accumulation:
+
+        > torch.cuda.OutOfMemoryError: CUDA out of memory. 
+        > Tried to allocate 80.00 MiB (GPU 0; 10.75 GiB total capacity; 
+        > 9.76 GiB already allocated; 7.62 MiB free; 10.40 GiB reserved in total by PyTorch) 
+        > If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  
+        > See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
         """
         from espfit.utils.sampler.reweight import SetupSamplerReweight
 
@@ -557,34 +568,38 @@ class EspalomaModel(EspalomaBase):
         
         # Train
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
+        accumulation_steps = len(ds_tr_loader)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
             for i in range(self.restart_epoch, self.epochs):
                 epoch = i + 1    # Start from 1 (not zero-indexing)
-            
-                #
-                # Accumulate gradients to avoid CUDA out of memory error.
-                # ---
-                # torch.cuda.OutOfMemoryError: CUDA out of memory. 
-                # Tried to allocate 80.00 MiB (GPU 0; 10.75 GiB total capacity; 
-                # 9.76 GiB already allocated; 7.62 MiB free; 10.40 GiB reserved in total by PyTorch) 
-                # If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  
-                # See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
 
-                # Check effective sample size and re-run simulation if necessary
+                # Compute sampler loss if epoch > sampler_patience
                 if epoch > self.sampler_patience:
-                    # Save checkpoint as local model (net.pt)
-                    # `neff_min` is -1 if SamplerReweight.samplers is None
+                    # Save checkpoint as local model (net.pt) and create list of sampler instances
                     samplers = self._setup_local_samplers(epoch, net_copy, debug)
+                    # Check effective sample size (neff). neff is computed for each sampler (sampler). 
+                    # Re-run the simulations based on the minimum neff value. `neff_min` is -1 if SamplerReweight.samplers is None, 
+                    # which is the default value when SamplerReweight is initialized.
                     neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
+                    # Re-run simulation if neff is below threshold
                     if neff_min < self.neff_threshold:
                         _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold})')
                         SamplerReweight.samplers = samplers
                         SamplerReweight.run()
                     del samplers
+                    # Compute sampler loss
+                    _loss = torch.tensor(0.0)
+                    _loss_dict = dict()
+                    if SamplerReweight.samplers:
+                        sampler_loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
+                        for sampler_index, sampler_loss in enumerate(sampler_loss_list):
+                            sampler = SamplerReweight.samplers[sampler_index]
+                            _loss += (sampler_loss/accumulation_steps) * sampler_weight
+                            _loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
+                        _loss_dict['neff'] = neff_min
 
-                # Gradient accumulation
-                accumulation_steps = len(ds_tr_loader)
+                # Accumulate gradiants
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
                     if torch.cuda.is_available():
@@ -593,16 +608,13 @@ class EspalomaModel(EspalomaBase):
                     # Compute loss
                     loss, loss_dict = self.net(g)
                     loss = loss/accumulation_steps
-                    # MD sampler loss
+                    # Add sampler loss
                     if epoch > self.sampler_patience:
-                        loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
-                        for sampler_index, sampler_loss in enumerate(loss_list):
-                            sampler = SamplerReweight.samplers[sampler_index]
-                            loss += (sampler_loss/accumulation_steps) * sampler_weight
-                            loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
-                        loss_dict['neff'] = neff_min
-                    loss.backward(retain_graph=True)
+                        loss += _loss
+                        loss.backward(retain_graph=True)
                 loss_dict['loss'] = loss.item()
+                if _loss_dict:
+                    loss_dict.update(_loss_dict)
                 self.report_loss(epoch, loss_dict)
                 optimizer.step()
                 
