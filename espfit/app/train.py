@@ -384,6 +384,8 @@ class EspalomaModel(EspalomaBase):
         with torch.autograd.set_detect_anomaly(True):
             for i in range(self.restart_epoch, self.epochs):
                 epoch = i + 1    # Start from epoch 1 (not zero-indexing)
+                _logger.info(f'Epoch {epoch}')
+                
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
                     # TODO: Better way to handle this?
@@ -401,10 +403,10 @@ class EspalomaModel(EspalomaBase):
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    _logger.info(f'Epoch {epoch}: loss={loss:.3f}')
+                    _logger.info(f'Total loss: {loss:.3f}')
                     self._save_checkpoint(epoch)
     
-    
+
     def train_sampler(self, sampler_patience=800, neff_threshold=0.2, sampler_weight=1.0, debug=False):
         """
         Train the Espaloma network model with sampler.
@@ -426,6 +428,17 @@ class EspalomaModel(EspalomaBase):
         Returns
         -------
         None
+
+        Notes
+        -----
+        Back-propagation is performed against accumulated gradients to avoid CUDA out of memory error.
+        Following error is raised if back-propagation is performed without gradient accumulation:
+
+        > torch.cuda.OutOfMemoryError: CUDA out of memory. 
+        > Tried to allocate 80.00 MiB (GPU 0; 10.75 GiB total capacity; 
+        > 9.76 GiB already allocated; 7.62 MiB free; 10.40 GiB reserved in total by PyTorch) 
+        > If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  
+        > See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
         """
         from espfit.utils.sampler.reweight import SetupSamplerReweight
 
@@ -451,104 +464,72 @@ class EspalomaModel(EspalomaBase):
         
         # Train
         ds_tr_loader = self.dataset_train.view(collate_fn='graph', batch_size=self.batch_size, shuffle=True)
+        accumulation_steps = len(ds_tr_loader)
         optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
         with torch.autograd.set_detect_anomaly(True):
             for i in range(self.restart_epoch, self.epochs):
                 epoch = i + 1    # Start from 1 (not zero-indexing)
-            
-                """
-                # torch.cuda.OutOfMemoryError: CUDA out of memory. 
-                # Tried to allocate 80.00 MiB (GPU 0; 10.75 GiB total capacity; 
-                # 9.76 GiB already allocated; 7.62 MiB free; 10.40 GiB reserved in total by PyTorch) 
-                # If reserved memory is >> allocated memory try setting max_split_size_mb to avoid fragmentation.  
-                # See documentation for Memory Management and PYTORCH_CUDA_ALLOC_CONF
+                _logger.info(f'# Epoch {epoch}')
 
-                loss = torch.tensor(0.0)
-                if torch.cuda.is_available():
-                    loss = loss.cuda("cuda:0")
-
-                for g in ds_tr_loader:
-                    optimizer.zero_grad()
-                    if torch.cuda.is_available():
-                        g = g.to("cuda:0")
-                    g.nodes["n1"].data["xyz"].requires_grad = True
-
-                    _loss, loss_dict = self.net(g)
-                    loss += _loss
-
+                # Compute sampler loss if epoch > sampler_patience
                 if epoch > self.sampler_patience:
-                    # Save checkpoint as local model (net.pt)
-                    # `neff_min` is -1 if SamplerReweight.samplers is None
-                    samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                    neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
-
-                    # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
+                    # Save checkpoint as local model (net.pt) and create list of sampler instances
+                    temporary_samplers = self._setup_temporary_samplers(epoch, net_copy, debug)
+                
+                    # Check the effective sample size (neff), computed for each sampler stored in `SamplerReweight.samplers`.
+                    # Coordinates from `SamplerReweight.samplers` are used to compute the effective sample size and Boltzmann weights 
+                    # using force field parameters (Espaloma models) stored in `SamplerReweight.samplers` and `temporary_samplers`, 
+                    # which are the updated force field parameters from the current epoch.
+                    # Re-run the simulations based on the minimum neff value. `neff_min` is set to -1 if `SamplerReweight.samplers` is None, 
+                    # which is the default state when `SetupSamplerReweight()` is initialized.
+                    # Note that `SamplerReweight.get_effective_sample_size` updates the `SamplerReweight.weights_neff_dict` attribute.
+                    neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=temporary_samplers)
+                    
+                    # Re-run simulation if `neff_min` is below threshold
                     if neff_min < self.neff_threshold:
-                        _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold})')
-                        SamplerReweight.samplers = samplers
+                        _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold:.3f})')
+                        # Update SamplerReweight.sampler with the temporary_samplers
+                        SamplerReweight.samplers = temporary_samplers
                         SamplerReweight.run()
-                    del samplers
-
+                        # Initiliaze `SamplerReweight.weights_neff_dict` to empty dictionary
+                        _logger.info(f'Reset sampler weights')
+                        SamplerReweight.weights_neff_dict = dict()
+                    del temporary_samplers
+                    
                     # Compute sampler loss
-                    loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
-                    for sampler_index, sampler_loss in enumerate(loss_list):
-                        sampler = SamplerReweight.samplers[sampler_index]
-                        loss += sampler_loss * sampler_weight
-                        loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
-                    loss_dict['neff'] = neff_min
+                    _loss = torch.tensor(0.0)
+                    _loss_dict = dict()
+                    if SamplerReweight.samplers:
+                        sampler_loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
+                        for sampler_index, sampler_loss in enumerate(sampler_loss_list):
+                            sampler = SamplerReweight.samplers[sampler_index]
+                            _loss += (sampler_loss/accumulation_steps) * sampler_weight
+                            _loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
+                        _loss_dict['neff'] = neff_min
 
-                loss_dict['loss'] = loss.item()
-                self.report_loss(epoch, loss_dict)
-
-                # Back propagate
-                loss.backward()
-                optimizer.step()
-                """
-
-                # Gradient accumulation
-                accumulation_steps = len(ds_tr_loader)
+                # Accumulate gradiants
                 for g in ds_tr_loader:
                     optimizer.zero_grad()
                     if torch.cuda.is_available():
                         g = g.to("cuda:0")
                     g.nodes["n1"].data["xyz"].requires_grad = True
-
+                    # Compute loss
                     loss, loss_dict = self.net(g)
                     loss = loss/accumulation_steps
-                    loss.backward()
-
-                if epoch > self.sampler_patience:
-                    # Save checkpoint as local model (net.pt)
-                    # `neff_min` is -1 if SamplerReweight.samplers is None
-                    samplers = self._setup_local_samplers(epoch, net_copy, debug)
-                    neff_min = SamplerReweight.get_effective_sample_size(temporary_samplers=samplers)
-
-                    # If effective sample size is below threshold, update SamplerReweight.samplers and re-run simulaton
-                    if neff_min < self.neff_threshold:
-                        _logger.info(f'Minimum effective sample size ({neff_min:.3f}) below threshold ({self.neff_threshold})')
-                        SamplerReweight.samplers = samplers
-                        SamplerReweight.run()
-                    del samplers
-
-                    # Compute sampler loss
-                    loss_list = SamplerReweight.compute_loss()   # list of torch.tensor
-                    for sampler_index, sampler_loss in enumerate(loss_list):
-                        sampler = SamplerReweight.samplers[sampler_index]
-                        loss += sampler_loss * sampler_weight
-                        loss_dict[f'{sampler.target_name}'] = sampler_loss.item()
-                    loss.backward()
-                    loss_dict['neff'] = neff_min
-
+                    # Add sampler loss
+                    if epoch > self.sampler_patience:
+                        loss += _loss
+                        loss.backward(retain_graph=True)
                 loss_dict['loss'] = loss.item()
+                if _loss_dict:
+                    loss_dict.update(_loss_dict)
                 self.report_loss(epoch, loss_dict)
-
-                # Update
                 optimizer.step()
-
+                
                 if epoch % self.checkpoint_frequency == 0:
                     # Note: returned loss is a joint loss of different units.
                     #_loss = HARTREE_TO_KCALPERMOL * loss.pow(0.5).item()
-                    _logger.info(f'Epoch {epoch}: loss={loss.item():.3f}')
+                    _logger.info(f'Total loss: {loss.item():.3f}')
                     self._save_checkpoint(epoch)
 
 
@@ -628,8 +609,8 @@ class EspalomaModel(EspalomaBase):
         self.save_model(net=net_copy, checkpoint_file=local_model, output_model=f"net.pt", output_directory_path=self.output_directory_path)
 
 
-    def _setup_local_samplers(self, epoch, net_copy, debug):
-        """Setup local samplers.
+    def _setup_temporary_samplers(self, epoch, net_copy, debug):
+        """Setup samplers using temporary espaloma models generated during training.
         
         Parameters
         ----------
@@ -666,7 +647,7 @@ class EspalomaModel(EspalomaBase):
             }
         
         # Create sampler system from configuration file. Returns list of systems.                        
-        samplers = SetupSampler.from_toml(self.configfile, *args, **override_sampler_kwargs)
+        samplers = SetupSampler._from_toml(self.configfile, *args, **override_sampler_kwargs)
 
         return samplers
     

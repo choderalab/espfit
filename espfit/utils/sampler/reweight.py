@@ -31,7 +31,9 @@ class SetupSamplerReweight(object):
     """
     def __init__(self):
         self.samplers = None
-        self.weights = dict()   # {'target_name': {'weights': w_i}, {'neff': neff}}
+        self.weights_neff_dict = dict()   # {'target_name': {'weights': w_i}, {'neff': neff}}
+        self.force_group_names = ['HarmonicBondForce', 'HarmonicAngleForce', 'PeriodicTorsionForce', 'NonbondedForce']
+        self.exclude_n_frames = 0.1
 
 
     def run(self):
@@ -42,7 +44,7 @@ class SetupSamplerReweight(object):
         None
         """
         for sampler in self.samplers:
-            _logger.info(f'Running simulation for {sampler.target_name} for {sampler.nsteps} steps...')
+            _logger.info(f'Re-run simulation for {sampler.target_name}')
             sampler.minimize()
             sampler.run()
 
@@ -60,57 +62,77 @@ class SetupSamplerReweight(object):
         float
             The minimum effective sample size among all samplers.
         """
-        import mdtraj
         import numpy as np
         from openmm.unit import kilocalories_per_mole as kcalpermol
         from espfit.utils.units import KB_T_KCALPERMOL
+        from espfit.app.analysis import BaseDataLoader
         
+        _logger.info(f'Compute effective sample size and sampling weights')
+
         if self.samplers is None:
+            _logger.info('No samplers found. Return effective sample size -1.')
             return -1
 
         for sampler, temporary_sampler in zip(self.samplers, temporary_samplers):
-            _logger.info(f'Compute effective sample size and sampling weights for {sampler.target_name}')
+            _logger.info(f'Analyzing {sampler.target_name}...')
 
             # Get temperature
             temp0 = sampler.temperature._value
             temp1 = temporary_sampler.temperature._value
             assert temp0 == temp1, f'Temperature should be equivalent but got sampler {temp0} K and temporary sampler {temp1} K'
             beta = 1 / (KB_T_KCALPERMOL * temp0)
-            _logger.debug(f'beta temperature in kcal/mol: {beta}')
+            #_logger.debug(f'beta temperature in kcal/mol: {beta}')
 
             # Get position from trajectory
-            traj = mdtraj.load(sampler.output_directory_path + '/traj.nc', top=sampler.output_directory_path + '/solvated.pdb')
-            _logger.info(f'Found {traj.n_frames} frames in trajectory')
+            baseloader = BaseDataLoader(atomSubset=sampler.atomSubset)
+            baseloader.load_traj(input_directory_path=sampler.output_directory_path, exclude_n_frames=self.exclude_n_frames)
+            _logger.info(f'Found {baseloader.traj.n_frames} frames from {sampler.output_directory_path}')
             
             # Compute weights and effective sample size
-            log_w = []
-            for i in range(traj.n_frames):
+            w_arr = []
+            for i in range(baseloader.traj.n_frames):
                 # U(x0, theta0)
-                sampler.simulation.context.setPositions(traj.openmm_positions(i))
-                potential_energy = sampler.simulation.context.getState(getEnergy=True).getPotentialEnergy()
+                sampler.simulation.context.setPositions(baseloader.traj.openmm_positions(i))
+                for gid, force in enumerate(sampler.simulation.system.getForces()):
+                    if force.getName() in self.force_group_names:
+                        try:
+                            potential_energy += sampler.simulation.context.getState(getEnergy=True, groups={gid}).getPotentialEnergy()
+                        except:
+                            potential_energy = sampler.simulation.context.getState(getEnergy=True, groups={gid}).getPotentialEnergy()
                 # U(x0, theta1)
-                temporary_sampler.simulation.context.setPositions(traj.openmm_positions(i))
-                reduced_potential_energy = temporary_sampler.simulation.context.getState(getEnergy=True).getPotentialEnergy()
+                temporary_sampler.simulation.context.setPositions(baseloader.traj.openmm_positions(i))
+                for gid, force in enumerate(temporary_sampler.simulation.system.getForces()):
+                    if force.getName() in self.force_group_names:
+                        try:
+                            reduced_potential_energy += temporary_sampler.simulation.context.getState(getEnergy=True, groups={gid}).getPotentialEnergy()
+                        except:
+                            reduced_potential_energy = temporary_sampler.simulation.context.getState(getEnergy=True, groups={gid}).getPotentialEnergy()
                 # deltaU = U(x0, theta1) - U(x0, theta0)
                 delta = (reduced_potential_energy - potential_energy).value_in_unit(kcalpermol)
-                # log_w = ln(exp(-beta * delta))
+                # w = ln(exp(-beta * delta))
                 w = -1 * beta * delta
-                log_w.append(w)
+                w_arr.append(w)
 
-                #_logger.debug(f'U(x0, theta0): {potential_energy.value_in_unit(kcalpermol):10.3f} kcal/mol')
-                #_logger.debug(f'U(x0, theta1): {reduced_potential_energy.value_in_unit(kcalpermol):10.3f} kcal/mol')
-                #_logger.debug(f'deltaU:        {delta:10.3f} kcal/mol')
-                #_logger.debug(f'log_w:         {w:10.3f}')
+                _logger.info(f'U(x0, theta0): {potential_energy.value_in_unit(kcalpermol):10.3f} kcal/mol')
+                _logger.info(f'U(x0, theta1): {reduced_potential_energy.value_in_unit(kcalpermol):10.3f} kcal/mol')
+                _logger.info(f'deltaU:        {delta:10.3f} kcal/mol')
+                _logger.info(f'w:             {w:10.3f}')
 
             # Compute weights and effective sample size (ratio: 0 to 1)
-            w_i = np.exp(log_w) / np.sum(np.exp(log_w))
+            # Prevent RuntimeWarning: overflow encountered in exp
+            w_arr = np.float128(w_arr)
+            w_i = np.exp(w_arr) / np.sum(np.exp(w_arr))
             neff = np.sum(w_i) ** 2 / np.sum(w_i ** 2) / len(w_i)
-            #_logger.debug(f'w_i_sum:       {np.sum(w_i):10.3f}')
-            #_logger.debug(f'neff:          {neff:10.3f}')
+            _logger.debug(f'w_i_sum:       {np.sum(w_i):10.3f}')
+            _logger.debug(f'neff:          {neff:10.3f}')
 
-            self.weights[f'{sampler.target_name}'] = {'neff': neff, 'weights': w_i}
-            #_logger.info(f'{self.weights}')
-            neffs = [self.weights[key]['neff'] for key in self.weights.keys()]
+            # Check if sum of weights is 1
+            sum_w = abs(np.sum(w_i))
+            assert abs(1 - sum_w) <= 0.001, f"Weight sum {sum_w} is greater than tolerance 0.001"
+
+            self.weights_neff_dict[f'{sampler.target_name}'] = {'neff': neff, 'weights': w_i}
+            _logger.debug(f'{self.weights_neff_dict}')
+            neffs = [self.weights_neff_dict[key]['neff'] for key in self.weights_neff_dict.keys()]
 
         return min(neffs)
     
@@ -125,7 +147,7 @@ class SetupSamplerReweight(object):
         """
         loss_list = []
         for sampler in self.samplers:
-            _logger.info(f'Compute loss for {sampler.target_name}')
+            _logger.debug(f'Compute loss for {sampler.target_name}')
             loss = self._compute_loss_per_system(sampler)  # torch.tensor
             loss_list.append(loss)
 
@@ -228,11 +250,11 @@ class SetupSamplerReweight(object):
 
         # Load trajectory
         target = RNASystem(atomSubset=atomSubset)
-        target.load_traj(input_directory_path=output_directory_path)
+        target.load_traj(input_directory_path=output_directory_path, exclude_n_frames=self.exclude_n_frames)
         
         # Compute observable
-        if self.weights.keys():
-            pred = target.compute_jcouplings(weights=self.weights[target_name]['weights'])
+        if self.weights_neff_dict.keys():
+            pred = target.compute_jcouplings(weights=self.weights_neff_dict[target_name]['weights'])
         else:
             pred = target.compute_jcouplings(weights=None)
         _logger.debug(f'Computed observable: {pred}')
